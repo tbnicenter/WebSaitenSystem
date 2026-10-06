@@ -2,3 +2,4 @@
 *.exe
 supabase.exe
 supabase-go.exe
+.streamlit/secrets.toml
