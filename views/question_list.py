@@ -317,16 +317,17 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                     with st.container(border=True):
                         st.markdown("**AI判断ポイント**")
                         for checkpoint_value in (text_cp1, text_cp2, text_cp3):
-                            checkpoint_lines = (
-                                str(checkpoint_value)
-                                .replace("\r\n", "\n")
-                                .replace("\r", "\n")
-                                .split("\n")
-                                or [""]
-                            )
+                            # splitlines() で安全に改行ごとに分割
+                            checkpoint_lines = str(checkpoint_value).splitlines() or [""]
+                            
+                            # 1行目は太字で表示
                             st.markdown(f"**{checkpoint_lines[0]}**")
+                            
                             if len(checkpoint_lines) > 1:
-                                st.markdown("  \n".join(checkpoint_lines[1:]))
+                                # 💡 修正：各行の末尾に半角スペース2つ（"  "）を付与してMarkdownの改行を強制する
+                                break_lines = [f"{line}  " for line in checkpoint_lines[1:]]
+                                # st.write ではなく st.markdown を使うことで改行ルールを適用
+                                st.markdown("\n".join(break_lines))
 
                     with st.container(border=True):
                         st.markdown(settings.LABELS["ai_result"])
@@ -348,12 +349,7 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                     st.markdown(settings.LABELS["grading_input"])
                     with st.container(border=True):
                         st.markdown(settings.LABELS["answer_label"])
-                        clean_answer = (
-                            str(text_answer)
-                            .replace("\r\n", "\n")
-                            .replace("\r", "\n")
-                            .replace("\n", "  \n")
-                        )
+                        clean_answer = str(text_answer).replace("\n", "  \n")
                         st.markdown(clean_answer)
 
                     st.write("")
