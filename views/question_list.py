@@ -317,10 +317,16 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                     with st.container(border=True):
                         st.markdown("**AI判断ポイント**")
                         for checkpoint_value in (text_cp1, text_cp2, text_cp3):
-                            checkpoint_lines = str(checkpoint_value).splitlines() or [""]
+                            checkpoint_lines = (
+                                str(checkpoint_value)
+                                .replace("\r\n", "\n")
+                                .replace("\r", "\n")
+                                .split("\n")
+                                or [""]
+                            )
                             st.markdown(f"**{checkpoint_lines[0]}**")
                             if len(checkpoint_lines) > 1:
-                                st.write("\n".join(checkpoint_lines[1:]))
+                                st.markdown("  \n".join(checkpoint_lines[1:]))
 
                     with st.container(border=True):
                         st.markdown(settings.LABELS["ai_result"])
@@ -342,7 +348,12 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                     st.markdown(settings.LABELS["grading_input"])
                     with st.container(border=True):
                         st.markdown(settings.LABELS["answer_label"])
-                        clean_answer = str(text_answer).replace("\n", "  \n")
+                        clean_answer = (
+                            str(text_answer)
+                            .replace("\r\n", "\n")
+                            .replace("\r", "\n")
+                            .replace("\n", "  \n")
+                        )
                         st.markdown(clean_answer)
 
                     st.write("")
