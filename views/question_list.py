@@ -281,7 +281,7 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                     ai_judge_val = current_row.get("ai_judge_mark")
                     current_judge = current_row.get("judge_mark_result")
                     
-                    # 正答画像は解答と入れ替えて左側に表示
+                                        # 正答画像は解答と入れ替えて左側に表示
                     current_response_id = current_row.get("response_id")
                     try:
                         cached_questions = fetch_cached_question_master(supabase)
@@ -289,17 +289,38 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                             (row for row in cached_questions if row.get("response_id") == current_response_id),
                             {},
                         )
+                        # マスタからファイル名を取得（アンダースコア）
                         file_name = master_row.get("correct_image_file_name")
 
                         if file_name and str(file_name).strip() != "":
-                            bucket_name = "correct_image"
+                            # 💡 物理的に作成済みのハイフン繋ぎバケットを指定
+                            bucket_name = "correct-image"
+                            
+                            # 💡 物理的にバケット内のファイル一覧を表示して答え合わせするデバッグ
+                            #try:
+                            #    files = supabase.storage.from_(bucket_name).list()
+                            #    file_names = [f.get("name") for f in files if isinstance(f, dict)]
+                            #    st.info(f"【デバッグ】バケット内に実際に存在するファイル一覧: {file_names}")
+                            #    st.info(f"【デバッグ】あなたがDBマスタから要求したファイル名: '{str(file_name).strip()}'")
+                            #except Exception as list_err:
+                            #    st.error(f"ファイル一覧の取得に失敗: {list_err}")
+                            ##デバッグコード　ここまで
+                            
                             try:
+                                # 💡 service_roleキーの権限を使い、Supabaseから正式な「期限付き署名URL（トークン埋め込み）」を発行します
                                 res_url = supabase.storage.from_(bucket_name).create_signed_url(str(file_name).strip(), 60)
-                                full_img_url = res_url.get("signedURL") or res_url.get("signedUrl")
-                            except Exception:
+                                
+                                # ライブラリのバージョン（辞書型か文字列型か）に合わせて安全に展開
+                                if isinstance(res_url, dict):
+                                    full_img_url = res_url.get("signedURL") or res_url.get("signedUrl")
+                                else:
+                                    full_img_url = res_url
+                                    
+                            except Exception as sign_inner_err:
+                                st.error(f"【デバッグ】URLの取得に失敗: {sign_inner_err}")
                                 full_img_url = f"{settings.STORAGE_BASE_URL}{file_name}"
 
-                            st.markdown(settings.LABELS["correct_image"])
+                            st.markdown("**正答画像**")
                             st.markdown("<style>div.img-clickable-box img { max-height: 280px; object-fit: contain; width: 100%; border-radius: 4px; border: 1px solid #ddd; transition: opacity 0.2s; } div.img-clickable-box img:hover { opacity: 0.8; cursor: pointer; }</style>", unsafe_allow_html=True)
                             html_preview = f"""
                             <div class="img-clickable-box">
@@ -310,9 +331,10 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                             """
                             st.markdown(html_preview, unsafe_allow_html=True)
                         else:
-                            st.caption(settings.LABELS["image_missing"])
+                            st.caption("正答画像ファイル名が登録されていません。")
                     except Exception as img_err:
-                        st.caption(settings.LABELS["image_load_skipped"].format(error=img_err))
+                        st.error(f"【デバッグ】全体処理でエラーが発生しました: {img_err}")
+
                     
                     with st.container(border=True):
                         st.markdown("**AI判断ポイント**")
