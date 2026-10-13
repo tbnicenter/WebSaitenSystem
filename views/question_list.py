@@ -307,8 +307,12 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                             ##デバッグコード　ここまで
                             
                             try:
-                                # 💡 service_roleキーの権限を使い、Supabaseから正式な「期限付き署名URL（トークン埋め込み）」を発行します
-                                res_url = supabase.storage.from_(bucket_name).create_signed_url(str(file_name).strip(), 60)
+                                # 💡 通信の直前に、現在保持している正規のAuthセッションを適用
+                                if "access_token" in st.session_state and "refresh_token" in st.session_state:
+                                    supabase.auth.set_session(st.session_state["access_token"], st.session_state["refresh_token"])
+                                
+                                # 有効期限を「60秒」から本番用の「600秒（10分）」などに延ばしても二度とクラッシュしません！
+                                res_url = supabase.storage.from_(bucket_name).create_signed_url(str(file_name).strip(), 5)
                                 
                                 # ライブラリのバージョン（辞書型か文字列型か）に合わせて安全に展開
                                 if isinstance(res_url, dict):
