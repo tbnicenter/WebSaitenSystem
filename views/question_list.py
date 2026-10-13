@@ -9,6 +9,11 @@ try:
 except ImportError:
     from views.master_cache import clear_master_cache, get_question_master
 
+try:
+    from log_common import insert_operation_log
+except ImportError:
+    from views.log_common import insert_operation_log
+
 # ==========================================================
 # 💡 負荷対策：問題マスタの取得を2分間キャッシュ化する
 # ==========================================================
@@ -158,6 +163,17 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                     col7.markdown(f"<p style='{style_attr} text-align: center;'>{hold_count}</p>", unsafe_allow_html=True)
                     
                     if col8.button(status_label, key=f"main_start_btn_{index}", use_container_width=True):
+                        operator_id = st.session_state.get("user_id", "UNKNOWN_USER")
+                        insert_operation_log(
+                            supabase=supabase,
+                            operator_id=operator_id,
+                            action_type="QUESTION_GRADING_OPEN",
+                            target_id=str(row['問題ID']),
+                            description=(
+                                f"採点画面を開く（担当採点者: {row['採点者ID']}, "
+                                f"採点完了日: {display_date}）。"
+                            ),
+                        )
                         st.session_state["selected_grader"] = row['採点者ID']
                         st.session_state["selected_response"] = row['問題ID']
                         st.session_state["selected_comp_date"] = row['採点完了日']
@@ -281,7 +297,7 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                     ai_judge_val = current_row.get("ai_judge_mark")
                     current_judge = current_row.get("judge_mark_result")
                     
-                                        # 正答画像は解答と入れ替えて左側に表示
+                    # 正答画像は解答と入れ替えて左側に表示
                     current_response_id = current_row.get("response_id")
                     try:
                         cached_questions = fetch_cached_question_master(supabase)
@@ -591,6 +607,19 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                                 .eq("grading_comp_date", selected_comp_date) \
                                 .execute()
                         
+                        old_status = str(current_judge).strip() if pd.notna(current_judge) else ""
+                        insert_operation_log(
+                            supabase=supabase,
+                            operator_id=approver_id,
+                            action_type="QUESTION_SCORE_UPDATE",
+                            target_id=str(row_pkey),
+                            description=(
+                                f"採点者が判定を登録（採点レコードID: {row_pkey}, "
+                                f"担当採点者: {selected_grader}, 問題ID: {current_response_id}, "
+                                f"変更前: {old_status or '未採点'} -> 変更後: {selected_score}）。"
+                            ),
+                        )
+
                         if not is_last_record:
                             st.toast(settings.LABELS["question_save_success"].format(score=selected_score), icon="✅")
                             st.session_state["selected_row_index"] = current_index + 1

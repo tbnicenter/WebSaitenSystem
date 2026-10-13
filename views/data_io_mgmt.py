@@ -287,20 +287,7 @@ def show_data_io_management(supabase, settings):
                         current_time_str = datetime.now().strftime("%Y%m%d_%H%M%S")
                         filename = f"scoring_data_unprocessed_{current_time_str}.csv"
 
-                        # 📝 【操作ログ】CSVが抽出・ダウンロードされたアクションを監査ログに刻印
-                        current_user_id = st.session_state.get("user_id", "UNKNOWN_USER")
-                        try:
-                            insert_operation_log(
-                                supabase=supabase,
-                                operator_id=current_user_id,
-                                action_type="CSV_EXPORT",
-                                target_id=filename,
-                                description=f"管理者による未処理データのCSV抽出成功。対象件数: {len(df_export)}件（解答内容のカラムをダブルクォーテーションで強制保護）。"
-                            )
-                        except Exception:
-                            pass
-
-                        st.download_button(
+                        download_clicked = st.download_button(
                             label=settings.LABELS["download_csv"],
                             data=csv_data,
                             file_name=filename,
@@ -308,6 +295,17 @@ def show_data_io_management(supabase, settings):
                             use_container_width=True,
                             key="tab5_download_btn"
                         )
+                        if download_clicked:
+                            insert_operation_log(
+                                supabase=supabase,
+                                operator_id=st.session_state.get("user_id", "UNKNOWN_USER"),
+                                action_type="AI_INPUT_CSV_EXPORT",
+                                target_id=filename,
+                                description=(
+                                    f"AI採点用CSVをダウンロード（ファイル名: {filename}, "
+                                    f"対象件数: {len(df_export)}件）。"
+                                ),
+                            )
 
                         st.markdown(settings.LABELS["unprocessed_preview"])
                         df_preview = df_export.head(100).copy()
@@ -701,7 +699,7 @@ def show_graded_output(supabase, settings):
 
         st.markdown("---")
         st.write(settings.LABELS["download_step"])
-        st.download_button(
+        download_clicked = st.download_button(
             label="📥 選択した採点完了データを結合CSVでダウンロード",
             data=final_csv_bytes,
             file_name=filename,
@@ -709,6 +707,17 @@ def show_graded_output(supabase, settings):
             use_container_width=True,
             key="tab6_final_download_btn"
         )
+        if download_clicked:
+            insert_operation_log(
+                supabase=supabase,
+                operator_id=st.session_state.get("user_id", "ADMIN_USER"),
+                action_type="GRADED_DATA_DOWNLOAD",
+                target_id=filename,
+                description=(
+                    f"採点完了CSVをダウンロード（ファイル名: {filename}, "
+                    f"対象日付: {valid_dates}, 出力件数: {len(df_valid_sorted)}件）。"
+                ),
+            )
 
         st.write(settings.LABELS["commit_step"])
         if st.button(settings.LABELS["commit_export"], key="tab6_commit_btn", use_container_width=True):
