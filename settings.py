@@ -348,3 +348,6 @@ TAB_ROLE_CONFIG = {
 
 #ログアウトするまでの時間（秒） （例：1800秒 ＝ 30分）
 LOGIN_TIMEOUT_SECONDS = 300     #とりあえず15分か？ 　テストの時は300秒    
+
+#採点基準画像URL有効時間（採点画面・保留対応画面共通）
+IMAGE_URL_EXPIRATION_SECONDS = 5  # 5分（300秒）に設定。必要に応じて変更可能。

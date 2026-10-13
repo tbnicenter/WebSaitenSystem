@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import time
+from settings import IMAGE_URL_EXPIRATION_SECONDS
 
 try:
     from master_cache import clear_master_cache, get_grader_master, get_question_master
@@ -402,20 +403,28 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                         file_name = first_row.get("correct_image_file_name")
 
                         if file_name and str(file_name).strip() != "":
-                            base_url = settings.STORAGE_BASE_URL
-
-                            if "object/sign/" in base_url:
-                                base_url = base_url.replace("object/sign/", "object/public/")
-                            if "object/authenticated/" in base_url:
-                                base_url = base_url.replace("object/authenticated/", "object/public/")
-
-                            base_url = base_url.rstrip("/") + "/"
                             clean_file_name = str(file_name).strip()
 
-                            if "correct_image/" in base_url:
-                                full_img_url = f"{base_url}{clean_file_name}"
+                            if "access_token" in st.session_state and "refresh_token" in st.session_state:
+                                supabase.auth.set_session(
+                                    st.session_state["access_token"],
+                                    st.session_state["refresh_token"],
+                                )
+
+                            signed_url_response = supabase.storage.from_("correct-image").create_signed_url(
+                                clean_file_name,
+                                IMAGE_URL_EXPIRATION_SECONDS,
+                            )
+                            if isinstance(signed_url_response, dict):
+                                full_img_url = (
+                                    signed_url_response.get("signedURL")
+                                    or signed_url_response.get("signedUrl")
+                                )
                             else:
-                                full_img_url = f"{base_url}correct_image/{clean_file_name}"
+                                full_img_url = signed_url_response
+
+                            if not full_img_url:
+                                raise ValueError("正答画像の署名付きURLが取得できませんでした。")
 
                             st.markdown(settings.LABELS["correct_standard"])
                             st.markdown("<style>div.img-clickable-box img { max-height: 280px; object-fit: contain; width: 100%; border-radius: 4px; border: 1px solid #ddd; transition: opacity 0.2s; } div.img-clickable-box img:hover { opacity: 0.8; cursor: pointer; }</style>", unsafe_allow_html=True)
@@ -436,6 +445,20 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                     st.caption(settings.LABELS["image_load_skipped"].format(error=img_err))
                 
                 with st.container(border=True):
+                    st.markdown("**🤖 AI採点情報**")
+                    if pd.isna(ai_judge_val) or str(ai_judge_val).strip() == "":
+                        ai_status_html = f"<span style='background-color: #757575; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>{settings.LABELS['status_no_data']}</span>"
+                    elif ai_judge_val == "O":
+                        ai_status_html = f"<span style='background-color: #1266F1; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>{settings.LABELS['status_correct']}</span>"
+                    elif ai_judge_val == "X":
+                        ai_status_html = f"<span style='background-color: #DC3545; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>{settings.LABELS['status_wrong']}</span>"
+                    elif ai_judge_val == "*":
+                        ai_status_html = f"<span style='background-color: #9e9e9e; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>{settings.LABELS['status_none']}</span>"
+                    else:
+                        ai_status_html = f"<span style='background-color: #757575; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>{ai_judge_val}</span>"
+                    st.markdown(settings.LABELS["ai_judgement"].format(status=ai_status_html), unsafe_allow_html=True)
+
+                with st.container(border=True):
                     st.markdown("**AI判断ポイント**")
                     for checkpoint_value in (text_cp1, text_cp2, text_cp3):
                         checkpoint_lines = (
@@ -448,20 +471,6 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                         st.markdown(f"**{checkpoint_lines[0]}**")
                         if len(checkpoint_lines) > 1:
                             st.markdown("  \n".join(checkpoint_lines[1:]))
-
-                with st.container(border=True):
-                    st.markdown(settings.LABELS["ai_result"])
-                    if pd.isna(ai_judge_val) or str(ai_judge_val).strip() == "":
-                        ai_status_html = f"<span style='background-color: #757575; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>{settings.LABELS['status_no_data']}</span>"
-                    elif ai_judge_val == "O":
-                        ai_status_html = f"<span style='background-color: #1266F1; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>{settings.LABELS['status_correct']}</span>"
-                    elif ai_judge_val == "X":
-                        ai_status_html = f"<span style='background-color: #DC3545; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>{settings.LABELS['status_wrong']}</span>"
-                    elif ai_judge_val == "*":
-                        ai_status_html = f"<span style='background-color: #9e9e9e; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>{settings.LABELS['status_none']}</span>"
-                    else:
-                        ai_status_html = f"<span style='background-color: #757575; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>{ai_judge_val}</span>"
-                    st.markdown(settings.LABELS["ai_judgement"].format(status=ai_status_html), unsafe_allow_html=True)
             # ==========================================================
             # 📥 右のエリア：正答画像、判定ボタン、メモ、レコード移動
             # ==========================================================
