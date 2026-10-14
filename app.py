@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 import os
+import importlib
 from datetime import datetime, timezone
 from supabase import create_client
 
@@ -17,6 +18,8 @@ st.set_page_config(
 # ⚙️ settingsモジュールのインポート
 try:
     import settings
+    # Streamlitの再実行で古いsettingsモジュールが再利用されないよう、常に最新ファイルを反映します。
+    settings = importlib.reload(settings)
 except ImportError:
     st.error("❌ settings.py が見つかりません。設定ファイルを作成してください。")
     st.stop()
@@ -93,10 +96,10 @@ def display_confirm_panel(message, pending_key, container=st):
         st.warning(message)
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("✅ はい、実行します", key=f"confirm_yes_{pending_key}", use_container_width=True):
+            if st.button(settings.LABELS["confirm_yes"], key=f"confirm_yes_{pending_key}", use_container_width=True):
                 return True
         with c2:
-            if st.button("❌ いいえ、戻ります", key=f"confirm_no_{pending_key}", use_container_width=True):
+            if st.button(settings.LABELS["confirm_no"], key=f"confirm_no_{pending_key}", use_container_width=True):
                 return False
     return None
 
@@ -131,7 +134,7 @@ else:
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
                 
-            st.error(f"⏳ 一定時間操作がなかったため、安全のため自動ログアウトし、編集ロックをすべて解放しました。")
+            st.error(settings.LABELS["login_timeout"])
             st.rerun()
 
             
@@ -139,11 +142,11 @@ else:
     # ─── 📊 共通ヘッダーエリア ───
     col_title, col_logout = st.columns([4, 1])
     with col_title:
-        st.markdown("## 📊 試験データ管理システム")
-        st.caption(f"ログイン中: {current_user_name} (採点者ID: {current_user_id}) / Role: {current_role_id}")
+        st.markdown(settings.LABELS["app_title"])
+        st.caption(settings.LABELS["logged_in_user"].format(name=current_user_name, user_id=current_user_id, role=current_role_id))
     with col_logout:
         st.write("") 
-        if st.button("ログアウト", use_container_width=True, key="main_logout_btn"):
+        if st.button(settings.LABELS["logout"], use_container_width=True, key="main_logout_btn"):
             try:
                 if current_user_id:
                     # 1. 採点者のログインステータスをオフにする
@@ -218,49 +221,73 @@ else:
 
     # ─── 🔄 タブの生成と画面呼び出し ───
     if visible_tab_labels:
-        tab_objs = st.tabs(visible_tab_labels)
-        tab_map = dict(zip(visible_tab_keys, tab_objs))
+        # st.tabs() は全タブの本体を毎回実行するため、非表示画面のDB取得まで発生します。
+        # 選択中の画面だけを実行し、再描画時のDBアクセスとUI生成を抑えます。
+        st.markdown(
+            """
+            <style>
+            div[data-testid="stRadio"] div[role="radiogroup"] > label {
+                background: transparent !important;
+            }
+            div[data-testid="stRadio"] div[role="radiogroup"] > label:has(input:checked) [data-testid="stMarkdownContainer"] {
+                background: #dbeafe;
+                border-radius: 4px;
+                padding: 4px 10px;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        selected_tab = st.radio(
+            "画面",
+            options=visible_tab_keys,
+            format_func=lambda key: visible_tab_labels[visible_tab_keys.index(key)],
+            horizontal=True,
+            key="active_tab_key",
+            label_visibility="collapsed",
+        )
+        tab_map = {selected_tab: st.container()}
         
-        if "tab1" in tab_map:
-            with tab_map["tab1"]:
+        if selected_tab == "tab1":
+            with tab_map[selected_tab]:
                 from views.question_list import show_question_list
                 show_question_list(supabase, settings, current_user_id, current_role_id)
                 
-        if "tab2" in tab_map:
-            with tab_map["tab2"]:
+        if selected_tab == "tab2":
+            with tab_map[selected_tab]:
                 from views.progress_mgmt import show_progress_management
                 show_progress_management(supabase, settings, display_confirm_panel)
                 
-        if "tab3" in tab_map:
-            with tab_map["tab3"]:
+        if selected_tab == "tab3":
+            with tab_map[selected_tab]:
                 from views.data_io_mgmt import show_csv_import
                 show_csv_import(supabase, settings)
                 
-        if "tab4" in tab_map:
-            with tab_map["tab4"]:
+        if selected_tab == "tab4":
+            with tab_map[selected_tab]:
                 from views.data_io_mgmt import show_file_io_sample
                 show_file_io_sample(settings)
                 
-        if "tab5" in tab_map:
-            with tab_map["tab5"]:
+        if selected_tab == "tab5":
+            with tab_map[selected_tab]:
                 from views.data_io_mgmt import show_data_io_management
                 show_data_io_management(supabase, settings)
                 
-        if "tab6" in tab_map:
-            with tab_map["tab6"]:
+        if selected_tab == "tab6":
+            with tab_map[selected_tab]:
                 from views.data_io_mgmt import show_graded_output
-                show_graded_output(supabase)
+                show_graded_output(supabase, settings)
                 
-        if "tab7" in tab_map:
-            with tab_map["tab7"]:
+        if selected_tab == "tab7":
+            with tab_map[selected_tab]:
                 from views.hold_management import show_hold_management_page
                 show_hold_management_page(supabase, settings, display_confirm_panel, current_user_id)
 
         # 👑【新設】8番目のタブ：テスト用デバッグ画面の実装
-        if "tab8" in tab_map:
-            with tab_map["tab8"]:
+        if selected_tab == "tab8":
+            with tab_map[selected_tab]:
                 st.markdown("### 🛠️ テスト用デバッグ管理")
-                st.markdown("このタブは特権管理者（role_id=4）にのみ露出する安全な検証エリアです。")
+                st.markdown(settings.LABELS["debug_tab_description"])
                 
                 # 💡 トグルスイッチでテストモードのON/OFFを完全コントロール！
                 # 他の画面や settings.py を一切書き換えることなく、この状態がシステム全体に安全連動します。
@@ -272,20 +299,20 @@ else:
                 st.session_state["is_test_mode_active"] = is_test
 
                 if is_test:
-                    st.success("🟢 現在テストモードが【有効】です。個別採点ページ等でテスト用の拡張操作が行えます。")
+                    st.success(settings.LABELS["test_mode_enabled"])
                     
                     # 💡 先ほど作成した「問題テーブル全削除ツール」をここにマウント！
                     # テストモードがONの時だけ、この下に物理削除ボタンが綺麗に出現します。
                     try:
                         from views.progress_mgmt import show_danger_zone_test_tools
-                        show_danger_zone_test_tools(supabase)
+                        show_danger_zone_test_tools(supabase, settings)
                     except ImportError:
                         # まだ views/progress_mgmt.py 内に関数を定義していない場合のセーフティフォールバック
-                        st.caption("ℹ️ テーブル全削除ロジック関数は、views/progress_mgmt.py 内への配置をお待ちしています。")
+                        st.caption(settings.LABELS["test_tool_missing"])
                 else:
-                    st.info("⚪ 現在は通常の本番モードです。検証用の破壊的ツールは安全に封印されています。")
+                    st.info(settings.LABELS["test_mode_disabled"])
     else:
-        st.warning(f"表示対象のタブがありません。管理者にお問い合わせください。(role_id: {current_role_id})")
+        st.warning(settings.LABELS["no_visible_tabs"].format(role_id=current_role_id))
         tab_map = {}
 
         
