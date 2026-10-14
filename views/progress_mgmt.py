@@ -246,21 +246,28 @@ def show_progress_management(supabase, settings, display_confirm_panel):
                     hold_count = int(row.get('採点保留数', 0))
                     comp_date_val = row.get('採点完了日', None)
                     
-                    # 💡 採点完了判定：未採点数と採点保留数が「ともに 0」なら完了の青
-                    font_color = "#000000"
+                     # ─── 💡 採点完了判定：未採点数と採点保留数が「ともに 0」なら完了の青（統一版） ───
                     if ungraded_count == 0 and hold_count == 0:
                         font_color = "#1266F1"  # ✅ 安心の青（完全完了）
                     else:
                         if pd.notna(comp_date_val) and str(comp_date_val).strip() != "":
+                            import datetime as dt_module
                             try:
+                                today = dt_module.date.today()
                                 if isinstance(comp_date_val, str):
                                     comp_date = dt_module.datetime.strptime(comp_date_val.strip(), "%Y-%m-%d").date()
                                 else:
                                     comp_date = pd.to_datetime(comp_date_val).date()
-                                if abs((dt_module.date.today() - comp_date).days) <= 2:
-                                    font_color = "#DC3545"  # 🚨 警告の赤
+                                
+                                # すでに採点完了日を過ぎている、または当日〜3日以内の場合 ➔ 【赤】
+                                if today >= comp_date or (comp_date - today).days <= 3:
+                                    font_color = "#DC3545"
+                                else:
+                                    font_color = "#212529"  # 4日以上先は基本の黒
                             except Exception:
-                                font_color = "#000000"
+                                font_color = "#212529"
+                        else:
+                            font_color = "#212529"  # 完了日未設定の未完了は黒
 
                     def write_colored(col_obj, text):
                         if font_color == "#DC3545":

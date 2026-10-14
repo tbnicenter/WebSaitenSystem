@@ -114,7 +114,7 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                     st.success(settings.LABELS["question_no_filtered_data"])
                     return
 
-                # 完了日の昇順で完全整列（優先順位：採点完了日 ➔ 問題ID）
+                # 完了日の昇順でソート（優先順位：採点完了日 ➔ 問題ID）
                 df_summary = df_summary.sort_values(by=['採点完了日', '問題ID'], ascending=[True, True])
 
                 st.metric(settings.LABELS["question_count"], len(df_summary))
@@ -147,12 +147,34 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                     if not display_title or str(display_title).strip() == "":
                         display_title = current_response_id
                         
-                    if unprocessed_count > 0 or hold_count > 0:
-                        font_color = "#DC3545"
-                        status_label = "✍️ 採点開始"
-                    else:
+                    # ─── 💡 文字色とステータスラベルの判定ロジック（期限超過・3日以内は赤） ───
+                    is_not_completed = (unprocessed_count > 0 or hold_count > 0)
+                    
+                    if not is_not_completed:
+                        # 1. すべての採点が完了しているレコード ➔ 【青】
                         font_color = "#1266F1"
                         status_label = "🔍 閲覧確認"
+                    else:
+                        # 未完了レコード ➔ ステータスは「採点開始」
+                        status_label = "✍️ 採点開始"
+                        
+                        if pd.notna(comp_date_val) and str(comp_date_val).strip() != "":
+                            import datetime as dt_module
+                            try:
+                                today = dt_module.date.today()
+                                comp_date = dt_module.datetime.strptime(str(comp_date_val).strip(), "%Y-%m-%d").date()
+                                
+                                # 2. すでに採点完了日を過ぎている（過去）、または当日〜3日以内の場合 ➔ 【赤】
+                                if today >= comp_date or (comp_date - today).days <= 3:
+                                    font_color = "#DC3545"  # 期限超過・当日・3日以内は赤
+                                else:
+                                    font_color = "#212529"  # 4日以上先で余裕があるレコードは基本の黒
+                            except Exception:
+                                font_color = "#DC3545"  # 日付エラー時は安全のため赤
+                        else:
+                            font_color = "#212529"  # 採点完了日が未設定の未完了は黒
+
+
                         
                     style_attr = f"color: {font_color}; font-family: 'Meiryo', sans-serif; font-weight: bold; font-size: 14px; margin: 0; padding: 4px 0;"
                     
