@@ -63,11 +63,7 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
             st.rerun()
 
         try:
-<<<<<<< HEAD
             with st.spinner(settings.LABELS["hold_loading"]):
-=======
-            with st.spinner("データベースから保留データを抽出中..."):
->>>>>>> origin/main
                 response = supabase.table("tbl_scoring_question_management") \
                     .select("saiten_question_id, checker_webid, response_id, judge_mark_result, final_approver_id, grading_comp_date") \
                     .execute()
@@ -141,11 +137,7 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                 with f_col3:
                     show_hold_others_done = st.checkbox(settings.LABELS["hold_filter_others"], value=False, key="filter_hold_others_done")
                 with f_col4:
-<<<<<<< HEAD
                     show_hold_past_only = st.checkbox(settings.LABELS["hold_filter_past"], value=True, key="filter_hold_past_only")
-=======
-                    show_hold_past_only = st.checkbox("🗃️ 過去の採点完了日分も表示", value=True, key="filter_hold_past_only")
->>>>>>> origin/main
                 # ─── 📊 チェックボックスの状態を掛け合わせてマスクを作成 ───
                 keep_mask = pd.Series(False, index=df_summary.index)
                 
@@ -215,13 +207,31 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                     if not display_title or str(display_title).strip() == "":
                         display_title = current_response_id
                         
-                    if unprocessed_count > 0:
-                        font_color = "#DC3545"      # 🔴 赤：未処理の保留が残っている
-                        status_label = "🔍 再採点開始"
-                    else:
-                        font_color = "#1266F1"      # 🔵 青：完了しているが、保留対応の歴史があるグループ
+                                       # ─── 💡 文字色とステータスラベルの判定ロジック（統一版） ───
+                    if unprocessed_count == 0:
+                        # 1. 保留の処理がすべて完了している ➔ 【青】
+                        font_color = "#1266F1"
                         status_label = "🔄 確認・修正"
+                    else:
+                        # 未完了の保留が残っている ➔ ステータスは「再採点開始」
+                        status_label = "🔍 再採点開始"
                         
+                        if pd.notna(comp_date_val) and str(comp_date_val).strip() != "":
+                            import datetime as dt_module
+                            try:
+                                today = dt_module.date.today()
+                                comp_date = dt_module.datetime.strptime(str(comp_date_val).strip(), "%Y-%m-%d").date()
+                                
+                                # 2. すでに採点完了日を過ぎている、または当日〜3日以内の場合 ➔ 【赤】
+                                if today >= comp_date or (comp_date - today).days <= 3:
+                                    font_color = "#DC3545"
+                                else:
+                                    font_color = "#212529"  # 4日以上先は基本の黒
+                            except Exception:
+                                font_color = "#DC3545"  # 日付エラー時は安全のため赤
+                        else:
+                            font_color = "#212529"  # 完了日未設定の未完了は黒
+     
                     style_attr = f"color: {font_color}; font-family: 'Meiryo', sans-serif; font-weight: bold; font-size: 13px; margin: 0; padding: 4px 0;"
                     
                     col1.markdown(f"<p style='{style_attr}'>{row['対象採点者']}</p>", unsafe_allow_html=True)
@@ -251,11 +261,7 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                 st.success(settings.LABELS["hold_no_data"])
 
         except Exception as e:
-<<<<<<< HEAD
             st.error(settings.LABELS["hold_error"].format(error=e))
-=======
-            st.error(f"データ取得エラー: {e}")
->>>>>>> origin/main
     # ==============================================================================
     # ✍️ 【ステップ2】保留レコードのみの個別再採点画面 (hold_current_step が "grading" のとき)
     # ==============================================================================
@@ -288,17 +294,10 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                 st.session_state["hold_current_step"] = "select"
                 st.rerun()
 
-<<<<<<< HEAD
             if st.button(settings.LABELS["back_to_hold_list"], key="hold_back_to_list_btn"):
                 back_to_hold_list()
 
             with st.spinner(settings.LABELS["hold_records_loading"]):
-=======
-            if st.button("⬅️ 保留問題一覧に戻る", key="hold_back_to_list_btn"):
-                back_to_hold_list()
-
-            with st.spinner("保留レコードを読み込み中..."):
->>>>>>> origin/main
                 raw_session_date = st.session_state.get("hold_selected_comp_date")
                 formatted_comp_date = None
                 if raw_session_date:
@@ -409,48 +408,7 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                 ai_judge_val = current_row.get("ai_judge_mark")
                 current_judge = current_row.get("judge_mark_result")
 
-<<<<<<< HEAD
                 current_response_id = current_row.get("response_id")
-=======
-                with st.container(border=True):
-                    st.markdown("**【解答 (answer)】**")
-                    clean_answer = str(text_answer).replace("\n", "  \n")
-                    st.markdown(clean_answer)
-                
-                with st.container(border=True):
-                    st.markdown("**🤖 AI採点チェックポイント1**")
-                    st.write(text_cp1)
-                    st.markdown("**🤖 AI採点チェックポイント2**")
-                    st.write(text_cp2)
-                    st.markdown("**🤖 AI採点チェックポイント3**")
-                    st.write(text_cp3)
-
-                with st.container(border=True):
-                    st.markdown("**💡 AI採点判断理由**")
-                    clean_reason = str(text_reason).replace("\n", "  \n")
-                    st.markdown(clean_reason)
-
-                with st.container(border=True):
-                    st.markdown("**🤖 AI採点結果**")
-                    if pd.isna(ai_judge_val) or str(ai_judge_val).strip() == "":
-                        ai_status_html = "<span style='background-color: #757575; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>データなし</span>"
-                    elif ai_judge_val == "O":
-                        ai_status_html = "<span style='background-color: #1266F1; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>🟢 正答(O)</span>"
-                    elif ai_judge_val == "X":
-                        ai_status_html = "<span style='background-color: #DC3545; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>🔴 誤答(X)</span>"
-                    elif ai_judge_val == "*":
-                        ai_status_html = "<span style='background-color: #9e9e9e; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>⚪ 無答(*)</span>"
-                    else:
-                        ai_status_html = f"<span style='background-color: #757575; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>{ai_judge_val}</span>"
-                    st.markdown(f"AI判定: {ai_status_html}", unsafe_allow_html=True)
-            # ==========================================================
-            # 📥 右のエリア：正答画像、判定ボタン、メモ、レコード移動
-            # ==========================================================
-            with right_input:
-                st.markdown("### 🗂️ 再採点入力（保留解除）")
-                current_response_id = current_row.get("response_id")
-                
->>>>>>> origin/main
                 try:
                     master_response = supabase.table("mst_questions") \
                         .select("correct_image_file_name") \
@@ -463,7 +421,6 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                         file_name = first_row.get("correct_image_file_name")
 
                         if file_name and str(file_name).strip() != "":
-<<<<<<< HEAD
                             clean_file_name = str(file_name).strip()
 
                             if "access_token" in st.session_state and "refresh_token" in st.session_state:
@@ -481,20 +438,6 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                                     signed_url_response.get("signedURL")
                                     or signed_url_response.get("signedUrl")
                                 )
-=======
-                            base_url = settings.STORAGE_BASE_URL
-                            
-                            if "object/sign/" in base_url:
-                                base_url = base_url.replace("object/sign/", "object/public/")
-                            if "object/authenticated/" in base_url:
-                                base_url = base_url.replace("object/authenticated/", "object/public/")
-                            
-                            base_url = base_url.rstrip("/") + "/"
-                            clean_file_name = str(file_name).strip()
-                            
-                            if "correct_image/" in base_url:
-                                full_img_url = f"{base_url}{clean_file_name}"
->>>>>>> origin/main
                             else:
                                 full_img_url = signed_url_response
 
@@ -517,7 +460,6 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                     else:
                         st.caption(settings.LABELS["image_missing"])
                 except Exception as img_err:
-<<<<<<< HEAD
                     st.caption(settings.LABELS["image_load_skipped"].format(error=img_err))
                 
                 with st.container(border=True):
@@ -561,9 +503,6 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                         .replace("\n", "  \n")
                     )
                     st.markdown(clean_answer)
-=======
-                    st.caption(f"（画像読み込みスキップ: {img_err}）")
->>>>>>> origin/main
 
                 if is_currently_locked:
                     st.warning(settings.LABELS["hold_locked"].format(grader=db_locked_by))
@@ -660,26 +599,13 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                 btn_cols = st.columns(3)
                 selected_score = None
                 
-<<<<<<< HEAD
                 if btn_cols[0].button(settings.LABELS["answer_score_correct"], key=f"h_score_O_{row_pkey}", use_container_width=True, disabled=is_currently_locked):
-=======
-                if btn_cols[0].button("🟢 正答(O)", key=f"h_score_O_{row_pkey}", use_container_width=True, disabled=is_currently_locked):
->>>>>>> origin/main
                     selected_score = "O"
                 if btn_cols[1].button(settings.LABELS["answer_score_wrong"], key=f"h_score_X_{row_pkey}", use_container_width=True, disabled=is_currently_locked):
                     selected_score = "X"
                 if btn_cols[2].button(settings.LABELS["answer_score_none"], key=f"h_score_N_{row_pkey}", use_container_width=True, disabled=is_currently_locked):
                     selected_score = "*"
 
-<<<<<<< HEAD
-=======
-                # ─── 📊 採点状況の右側に問題数を美しく配置（登録者名の追記版） ───
-                if pd.isna(current_judge) or str(current_judge).strip() == "H":
-                    status_html = "<span style='background-color: #6f42c1; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>🟣 保留(H)</span>"
-                else:
-                    status_html = f"<span style='background-color: #1266F1; color: white; padding: 4px 12px; border-radius: 4px; font-weight: bold;'>確定済({current_judge})</span>"
-                
->>>>>>> origin/main
                 # 💡 誰が登録した値なのかをマスタから逆引きしてテキストを生成
                 raw_approver_id = current_row.get("final_approver_id")
                 if pd.notna(raw_approver_id) and str(raw_approver_id).strip() not in ["", "None", "null"]:
@@ -694,16 +620,9 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                     approver_html = "<span style='font-size: 13px; color: #888888; margin-left: 8px; font-style: italic;'>👤 確定者: なし（初期状態）</span>"
 
                 st.write("")
-<<<<<<< HEAD
                 status_col1, status_col2 = st.columns([1.5, 1.0])
                 with status_col1:
                     st.markdown(approver_html, unsafe_allow_html=True)
-=======
-                # 左右に分割して、左側に「状態＋確定者名」、右側に「〇問目」を表示します
-                status_col1, status_col2 = st.columns([1.5, 1.0])
-                with status_col1:
-                    st.markdown(f"**現在の状態:** {status_html}{approver_html}", unsafe_allow_html=True)
->>>>>>> origin/main
                 with status_col2:
                     st.markdown(f"<p style='margin:0; font-size:15px; font-weight:bold; color:#1266F1; line-height:1.8; text-align:right;'>📄 {current_index + 1}問目（{len(all_rows)}問中）</p>", unsafe_allow_html=True)
                 st.write("")
@@ -721,19 +640,11 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                 st.write(settings.LABELS["navigation"])
                 nav_col1, nav_col2, nav_col3, nav_col4, nav_col5, nav_col6, nav_col7 = st.columns([1.2, 1.8, 1.2, 1.2, 1.2, 1.8, 1.8])
                 
-<<<<<<< HEAD
                 if nav_col1.button(settings.LABELS["first_record"], key="h_nav_first", use_container_width=True):
                     st.session_state["hold_selected_row_index"] = 0
                     st.rerun()
 
                 if nav_col2.button(settings.LABELS["previous_unprocessed"], key="h_nav_prev_unprocessed", use_container_width=True):
-=======
-                if nav_col1.button("⏪ 先頭へ戻る", key="h_nav_first", use_container_width=True):
-                    st.session_state["hold_selected_row_index"] = 0
-                    st.rerun()
-
-                if nav_col2.button("⏮️ 前の未処理へ", key="h_nav_prev_unprocessed", use_container_width=True):
->>>>>>> origin/main
                     prev_unprocessed = current_index
                     for i in range(current_index - 1, -1, -1):
                         if str(all_rows[i].get("judge_mark_result", "")).strip().upper() == "H":
@@ -747,11 +658,7 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                     st.session_state["hold_selected_row_index"] = prev_unprocessed
                     st.rerun()
 
-<<<<<<< HEAD
                 if nav_col3.button(settings.LABELS["previous"], key="h_nav_prev", use_container_width=True):
-=======
-                if nav_col3.button("◀ 前へ", key="h_nav_prev", use_container_width=True):
->>>>>>> origin/main
                     if current_index > 0:
                         st.session_state["hold_selected_row_index"] = current_index - 1
                         st.rerun()
@@ -764,20 +671,12 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                     unsafe_allow_html=True
                 )
               
-<<<<<<< HEAD
                 if nav_col5.button(settings.LABELS["next"], key="h_nav_next", use_container_width=True):
-=======
-                if nav_col5.button("次へ ▶", key="h_nav_next", use_container_width=True):
->>>>>>> origin/main
                     if current_index < total_records - 1:
                         st.session_state["hold_selected_row_index"] = current_index + 1
                         st.rerun()
 
-<<<<<<< HEAD
                 if nav_col6.button(settings.LABELS["next_unprocessed"], key="h_nav_next_unprocessed", use_container_width=True):
-=======
-                if nav_col6.button("⏭️ 次の未処理へ", key="h_nav_next_unprocessed", use_container_width=True):
->>>>>>> origin/main
                     next_unprocessed = current_index
                     for i in range(current_index + 1, total_records):
                         if str(all_rows[i].get("judge_mark_result", "")).strip().upper() == "H":
@@ -790,11 +689,7 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                                 break
                     st.session_state["hold_selected_row_index"] = next_unprocessed
                     st.rerun()
-<<<<<<< HEAD
                 if nav_col7.button(settings.LABELS["admin_next"], key="h_nav_next_admin_task", use_container_width=True):
-=======
-                if nav_col7.button("👑 管理者対応へ", key="h_nav_next_admin_task", use_container_width=True):
->>>>>>> origin/main
                     import time as time_module_admin
                     target_admin_index = None
 
@@ -871,19 +766,11 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                         st.rerun()
                     else:
                         # 💡 【移植】最後の問題を解き終えた際の2ボタン確認ダイアログ
-<<<<<<< HEAD
                         @st.dialog(settings.LABELS["hold_finish_title"])
                         def show_hold_finish_dialog():
                             st.markdown(settings.LABELS["hold_finish_heading"])
                             st.write(settings.LABELS["hold_finish_message"])
                             st.write(settings.LABELS["hold_finish_hint"])
-=======
-                        @st.dialog("🎉 保留解除・採点完了の確認")
-                        def show_hold_finish_dialog():
-                            st.markdown("##### ✨ これで最後の保留データの採点が終了しました！")
-                            st.write("最終判定の上書き保存は完了しています。このまま問題一覧画面に戻りますか？それとも内容を見直しますか？")
-                            st.write("（※そのまま **Enterキー** を押すと一覧に戻ります）")
->>>>>>> origin/main
                             st.write("")
                             
                             with st.form(key="hold_finish_confirm_2btn_form", border=False):
