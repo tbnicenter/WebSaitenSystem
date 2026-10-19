@@ -1,5 +1,6 @@
 import os
 import streamlit as st
+from streamlit.errors import StreamlitSecretNotFoundError
 
 # settings.py などの環境設定ファイル
 IS_TEST_MODE = True  # 🧪 ローカルテスト時は True。本番リリース時はここを False にするだけでボタンが消滅します。
@@ -9,10 +10,9 @@ IS_TEST_MODE = True  # 🧪 ローカルテスト時は True。本番リリー�
 _url = os.environ.get("SUPABASE_STORAGE_URL", "").strip()
 
 if not _url:
-    # Renderでなければ、PCの secrets.toml から引っ張る
     try:
-        _url = st.secrets["STORAGE_BASE_URL"].strip()
-    except:
+        _url = st.secrets.get("SUPABASE_STORAGE_URL", st.secrets.get("STORAGE_BASE_URL", "")).strip()
+    except StreamlitSecretNotFoundError:
         _url = ""
 
 # 🚨 万が一、他のコードが localhost と決めつけていたらここで完全に上書きガード
@@ -114,7 +114,7 @@ LABELS = {
     "loading_question_records": "採点対象データを読み込み中...",
     "question_records_not_found": "採点対象のレコードが見つかりませんでした。",
     "question_locked": "⚠️ この問題は現在、別の採点者（ID: {grader}）が画面を開いて採点中のため、ロックされています。",
-    "question_locked_readonly": "💡 内容の閲覧は可能ですが、判定ボタンの操作やメモの書き込みはバッティング防止のため制限されます。",
+    "question_locked_readonly": "💡 内容の閲覧は可能ですが、判定ボタンやメモの書き込みはできません。",
     "answer_information": "### 📝 採点基準・AI判定情報",
     "answer_label": "**【児童生徒の解答】**",
     "ai_checkpoint_1": "**🤖 AI採点チェックポイント1**",
@@ -122,14 +122,14 @@ LABELS = {
     "ai_checkpoint_3": "**🤖 AI採点チェックポイント3**",
     "ai_reason": "**💡 AI採点判断理由**",
     "ai_result": "**🤖 AI採点結果**",
-    "grading_input": "### 🗂️ 採点・コメント入力",
+    "grading_input": "### 🗂️ 採点入力",
     "correct_image": "**🎯 採点基準画像** ※クリックで別タブで拡大",
     "image_missing": "⚠️ 採点基準画像ファイル名が登録されていません。",
     "image_load_skipped": "（画像読み込みスキップ: {error}）",
     "current_status": "**現在の採点状況:** {status}",
     "question_number": "📄 {current}問目（{total}問中）",
-    "admin_locked": "🔒 この問題は管理者によって判定が確定しているため、上書き変更はロックされています（閲覧専用）。",
-    "select_judgement": "採点判定を選択してください（ボタンを押すと即時保存して次の問題へ進みます）：",
+    "admin_locked": "🔒 この問題は管理者によって判定が確定しているため、上書き変更はできません（閲覧専用）。",
+    "select_judgement": "採点判定を選択してください（ボタンを押すと保存して次の問題へ進みます）：",
 
     # 採点管理
     "no_group": "あなたの所属グループ情報がありません。管理者にお問い合わせください。",
@@ -350,4 +350,4 @@ TAB_ROLE_CONFIG = {
 LOGIN_TIMEOUT_SECONDS = 300     #とりあえず15分か？ 　テストの時は300秒    
 
 #採点基準画像URL有効時間（採点画面・保留対応画面共通）
-IMAGE_URL_EXPIRATION_SECONDS = 300  # 5分（300秒）に設定。必要に応じて変更可能。
+IMAGE_URL_EXPIRATION_SECONDS = 30  # 5分（300秒）に設定。必要に応じて変更可能。

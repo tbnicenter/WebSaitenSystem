@@ -3,8 +3,11 @@ import pandas as pd
 import time
 import os
 import importlib
+from pathlib import Path
 from datetime import datetime, timezone
 from supabase import create_client
+from streamlit.errors import StreamlitSecretNotFoundError
+import toml
 
 
 # 🎯 【画面幅の拡張】ワイド解像度（1920x1200）をフル活用
@@ -46,25 +49,60 @@ def init_connection():
     """
     🌐 Supabase接続設定（Render環境変数およびシークレットを完全パース）
     """
-    # 💡 Renderの「Environment」から前後の空白を完全に剥ぎ取って安全にロード
-    url = os.environ.get("SUPABASE_URL", "").strip()
-    key = os.environ.get("SUPABASE_KEY", "").strip()
-    storage_url = os.environ.get("SUPABASE_STORAGE_URL", "").strip()
+    setting_names = {
+        "SUPABASE_URL": ("SUPABASE_URL",),
+        "SUPABASE_KEY": ("SUPABASE_KEY",),
+        "SUPABASE_STORAGE_URL": ("SUPABASE_STORAGE_URL", "STORAGE_BASE_URL"),
+    }
+    config = {name: "" for name in setting_names}
 
-    # 🚨 もし環境変数が空っぽだった場合、ローカルPC開発環境（secrets.toml）から安全に引き抜く
-    if not url or not key:
+    for name, aliases in setting_names.items():
+        for alias in aliases:
+            value = os.environ.get(alias, "").strip()
+            if value:
+                config[name] = value
+                break
+
+    try:
+        streamlit_secrets = st.secrets
+        for name, aliases in setting_names.items():
+            if config[name]:
+                continue
+            for alias in aliases:
+                value = streamlit_secrets.get(alias, "")
+                if isinstance(value, str) and value.strip():
+                    config[name] = value.strip()
+                    break
+    except StreamlitSecretNotFoundError:
+        pass
+
+    if any(not value for value in config.values()):
+        local_secrets_path = Path(__file__).resolve().parent / "supabase" / "secrets.toml"
         try:
-            url = st.secrets["SUPABASE_URL"].strip()
-            key = st.secrets["SUPABASE_KEY"].strip()
-            # secrets.toml にSTORAGEキーがあるか安全にチェック
-            if "SUPABASE_STORAGE_URL" in st.secrets:
-                storage_url = st.secrets["SUPABASE_STORAGE_URL"].strip()
-        except Exception:
-            raise RuntimeError(
-                "❌ Supabaseの認証情報またはストレージURLが見つかりません。"
-                "Renderの環境変数（Environment Variables）に「SUPABASE_URL」と「SUPABASE_KEY」、"
-                "および「SUPABASE_STORAGE_URL」が正しく登録されているか今一度確認してください。"
-            )
+            local_secrets = toml.loads(local_secrets_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            local_secrets = {}
+
+        for name, aliases in setting_names.items():
+            if config[name]:
+                continue
+            for alias in aliases:
+                value = local_secrets.get(alias, "")
+                if isinstance(value, str) and value.strip():
+                    config[name] = value.strip()
+                    break
+
+    missing_settings = [name for name, value in config.items() if not value]
+    if missing_settings:
+        missing = "、".join(missing_settings)
+        raise RuntimeError(
+            f"Supabase設定が不足しています（{missing}）。"
+            "ローカルでは supabase/secrets.toml、Renderでは Environment Variables に設定してください。"
+        )
+
+    url = config["SUPABASE_URL"]
+    key = config["SUPABASE_KEY"]
+    storage_url = config["SUPABASE_STORAGE_URL"]
 
     # 💡 【今回の最重要マージ】取得した最新のストレージURLを、システム全体が参照する settings クラスへ動的注入！
     # これにより、各採点子画面（question_list.py や hold_management.py）内の `settings.STORAGE_BASE_URL` が

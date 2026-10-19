@@ -3,3 +3,4 @@
 supabase.exe
 supabase-go.exe
 .streamlit/secrets.toml
+supabase/secrets.toml
