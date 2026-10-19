@@ -7,11 +7,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from supabase import create_client
 from streamlit.errors import StreamlitSecretNotFoundError
-
-try:
-    import tomllib
-except ModuleNotFoundError:
-    import tomli as tomllib
+import toml
 
 
 # 🎯 【画面幅の拡張】ワイド解像度（1920x1200）をフル活用
@@ -83,8 +79,7 @@ def init_connection():
     if any(not value for value in config.values()):
         local_secrets_path = Path(__file__).resolve().parent / "supabase" / "secrets.toml"
         try:
-            with local_secrets_path.open("rb") as secrets_file:
-                local_secrets = tomllib.load(secrets_file)
+            local_secrets = toml.loads(local_secrets_path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             local_secrets = {}
 
