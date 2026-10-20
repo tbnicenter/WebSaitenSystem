@@ -426,8 +426,6 @@ def show_progress_management(supabase, settings, display_confirm_panel):
     except Exception as group_err:
         st.error(settings.LABELS["progress_load_error"].format(error=group_err))
 
-
-
 # ==============================================================================
 # 🛠️ テストモード限定：採点問題テーブル全削除する処理
 # ==============================================================================

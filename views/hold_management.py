@@ -766,7 +766,10 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                         st.rerun()
                     else:
                         # 💡 【移植】最後の問題を解き終えた際の2ボタン確認ダイアログ
-                        @st.dialog(settings.LABELS["hold_finish_title"])
+                        @st.dialog(
+                            settings.LABELS["hold_finish_title"],
+                            dismissible=False,
+                        )
                         def show_hold_finish_dialog():
                             st.markdown(settings.LABELS["hold_finish_heading"])
                             st.write(settings.LABELS["hold_finish_message"])

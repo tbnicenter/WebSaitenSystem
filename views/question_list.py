@@ -12,9 +12,9 @@ except ImportError:
     from views.master_cache import clear_master_cache, get_question_master
 
 try:
-    from log_common import insert_operation_log
+    from log_common import classify_error, get_correlation_id, insert_operation_log
 except ImportError:
-    from views.log_common import insert_operation_log
+    from views.log_common import classify_error, get_correlation_id, insert_operation_log
 
 # ==========================================================
 # 💡 負荷対策：問題マスタの取得を2分間キャッシュ化する
@@ -187,17 +187,6 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                     col7.markdown(f"<p style='{style_attr} text-align: center;'>{hold_count}</p>", unsafe_allow_html=True)
                     
                     if col8.button(status_label, key=f"main_start_btn_{index}", use_container_width=True):
-                        operator_id = st.session_state.get("user_id", "UNKNOWN_USER")
-                        insert_operation_log(
-                            supabase=supabase,
-                            operator_id=operator_id,
-                            action_type="QUESTION_GRADING_OPEN",
-                            target_id=str(row['問題ID']),
-                            description=(
-                                f"採点画面を開く（担当採点者: {row['採点者ID']}, "
-                                f"採点完了日: {display_date}）。"
-                            ),
-                        )
                         st.session_state["selected_grader"] = row['採点者ID']
                         st.session_state["selected_response"] = row['問題ID']
                         st.session_state["selected_comp_date"] = row['採点完了日']
@@ -567,14 +556,14 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                             else:
                                 st.info(settings.LABELS["question_previous_none"])
 
-                    if nav_col3.button("◀ 前へ", key="prev_detail_btn", use_container_width=True):
+                    if nav_col3.button("◀ 前へ（B)", key="prev_detail_btn", use_container_width=True):
                         if current_index > 0:
                             st.session_state["selected_row_index"] = current_index - 1
                             st.rerun()
 
                     nav_col4.markdown(f"<p style='text-align: center; margin:0; font-weight:bold; font-size:14px; line-height:2.4;'>{current_index + 1}/{total_records}</p>", unsafe_allow_html=True)
                     
-                    if nav_col5.button("次へ ▶", key="next_detail_btn", use_container_width=True):
+                    if nav_col5.button("（N)次へ ▶", key="next_detail_btn", use_container_width=True):
                         if current_index < total_records - 1:
                             st.session_state["selected_row_index"] = current_index + 1
                             st.rerun()
@@ -612,18 +601,42 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
 
                         with st.spinner("Supabaseに保存中..."):
                             approver_id = st.session_state.get("user_id")
-                            
-                            supabase.table("tbl_scoring_question_management") \
-                                .update({
-                                    "judge_mark_result": selected_score,
-                                    "final_approver_id": approver_id,
-                                    "memo": memo_input
-                                }) \
-                                .eq("saiten_question_id", row_pkey) \
-                                .eq("grading_comp_date", selected_comp_date) \
-                                .execute()
+                            correlation_id = get_correlation_id(st.session_state)
+                            db_started_at = time.perf_counter()
+                            try:
+                                score_update_response = supabase.table("tbl_scoring_question_management") \
+                                    .update({
+                                        "judge_mark_result": selected_score,
+                                        "final_approver_id": approver_id,
+                                        "memo": memo_input
+                                    }) \
+                                    .eq("saiten_question_id", row_pkey) \
+                                    .eq("grading_comp_date", selected_comp_date) \
+                                    .execute()
+                            except Exception as db_error:
+                                db_duration_ms = round(
+                                    (time.perf_counter() - db_started_at) * 1000, 2
+                                )
+                                insert_operation_log(
+                                    supabase=supabase,
+                                    operator_id=approver_id or "UNKNOWN_USER",
+                                    action_type="QUESTION_SCORE_UPDATE",
+                                    target_id=str(row_pkey),
+                                    description="採点結果のDB保存に失敗",
+                                    correlation_id=correlation_id,
+                                    metadata={
+                                        "result": "failure",
+                                        "duration_ms": db_duration_ms,
+                                        "error": classify_error(db_error),
+                                    },
+                                )
+                                raise
+                            db_duration_ms = round(
+                                (time.perf_counter() - db_started_at) * 1000, 2
+                            )
                         
                         old_status = str(current_judge).strip() if pd.notna(current_judge) else ""
+                        updated_rows = getattr(score_update_response, "data", None)
                         insert_operation_log(
                             supabase=supabase,
                             operator_id=approver_id,
@@ -634,6 +647,14 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                                 f"担当採点者: {selected_grader}, 問題ID: {current_response_id}, "
                                 f"変更前: {old_status or '未採点'} -> 変更後: {selected_score}）。"
                             ),
+                            correlation_id=correlation_id,
+                            metadata={
+                                "result": "success",
+                                "duration_ms": db_duration_ms,
+                                "affected_rows": (
+                                    len(updated_rows) if isinstance(updated_rows, list) else None
+                                ),
+                            },
                         )
 
                         if not is_last_record:
@@ -641,15 +662,27 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                             st.session_state["selected_row_index"] = current_index + 1
                             st.rerun()
                         else:
-                            @st.dialog(settings.LABELS["question_finish_title"])
+                            @st.dialog(
+                                settings.LABELS["question_finish_title"],
+                                dismissible=False,
+                            )
                             def show_finish_dialog():
                                 st.markdown(settings.LABELS["question_finish_heading"])
                                 st.write(settings.LABELS["question_finish_message"])
                                 st.write("")
                                 
                                 with st.form(key="finish_confirm_2btn_form", border=False):
-                                    submit_btn = st.form_submit_button(settings.LABELS["question_finish_submit"], use_container_width=True)
-                                    if submit_btn:
+                                    review_btn = st.form_submit_button(
+                                        settings.LABELS["question_review_again"],
+                                        type="secondary",
+                                        use_container_width=True,
+                                    )
+                                    finish_btn = st.form_submit_button(
+                                        settings.LABELS["question_finish_submit"],
+                                        type="secondary",
+                                        use_container_width=True,
+                                    )
+                                    if finish_btn:
                                         st.balloons()
                                         st.session_state["selected_grader"] = None
                                         st.session_state["selected_response"] = None
@@ -657,9 +690,8 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                                         st.session_state["selected_row_index"] = 0
                                         st.session_state["current_step"] = "select"
                                         st.rerun()
-                                
-                                if st.button(settings.LABELS["question_review_again"], use_container_width=True):
-                                    st.rerun()
+                                    if review_btn:
+                                        st.rerun()
                             
                             show_finish_dialog()
                         
