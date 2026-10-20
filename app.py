@@ -3,11 +3,27 @@ import pandas as pd
 import time
 import os
 import importlib
+import logging
 from pathlib import Path
 from datetime import datetime, timezone
 from supabase import create_client
 from streamlit.errors import StreamlitSecretNotFoundError
 import toml
+from views.log_common import (
+    execute_logged_db_operation,
+    get_correlation_id,
+    insert_operation_log,
+)
+
+audit_logger = logging.getLogger("websaiten.audit")
+if not audit_logger.handlers:
+    audit_handler = logging.StreamHandler()
+    audit_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    audit_logger.addHandler(audit_handler)
+audit_logger.setLevel(logging.INFO)
+audit_logger.propagate = False
 
 
 # 🎯 【画面幅の拡張】ワイド解像度（1920x1200）をフル活用
@@ -151,6 +167,7 @@ else:
     current_user_id = st.session_state.get("user_id")
     current_user_name = st.session_state.get("user_name")
     current_role_id = st.session_state.get("role_id", None)
+    correlation_id = get_correlation_id(st.session_state)
 
     # ⏱️ 共通自動ログアウトシステム
     current_time = time.time()
@@ -159,14 +176,59 @@ else:
     if last_activity is not None:
         elapsed_time = current_time - last_activity
         if elapsed_time > settings.LOGIN_TIMEOUT_SECONDS:
-            try:
-                if current_user_id:
-                    supabase.table("graders").update({"login_status": False}).eq("grader_id", current_user_id).execute()
-                    supabase.table("tbl_scoring_question_management") \
-                        .update({"is_locked": False, "locked_by_webid": None, "locked_at": None}) \
-                        .eq("locked_by_webid", current_user_id).execute()
-            except Exception:
-                pass
+            logout_started_at = time.perf_counter()
+            audit_logger.info(
+                "audit.logout reason=timeout grader_id=%r correlation_id=%s",
+                current_user_id,
+                correlation_id,
+            )
+            logout_operations = []
+            if current_user_id:
+                timeout_operations = (
+                    (
+                        "grader_login_status_reset",
+                        lambda: supabase.table("graders")
+                        .update({"login_status": False})
+                        .eq("grader_id", current_user_id)
+                        .execute(),
+                    ),
+                    (
+                        "grader_scoring_locks_release",
+                        lambda: supabase.table("tbl_scoring_question_management")
+                        .update({"is_locked": False, "locked_by_webid": None, "locked_at": None})
+                        .eq("locked_by_webid", current_user_id)
+                        .execute(),
+                    ),
+                )
+                for operation_name, execute in timeout_operations:
+                    try:
+                        execute_logged_db_operation(
+                            operator_id=current_user_id,
+                            action_type="AUTO_LOGOUT",
+                            operation_name=operation_name,
+                            execute=execute,
+                            correlation_id=correlation_id,
+                            operation_events=logout_operations,
+                        )
+                    except Exception:
+                        pass
+
+            insert_operation_log(
+                supabase=supabase,
+                operator_id=current_user_id or "UNKNOWN_USER",
+                action_type="AUTO_LOGOUT",
+                description="操作タイムアウトによる自動ログオフ",
+                correlation_id=correlation_id,
+                metadata={
+                    "result": (
+                        "failure"
+                        if any(operation["result"] == "failure" for operation in logout_operations)
+                        else "success"
+                    ),
+                    "duration_ms": round((time.perf_counter() - logout_started_at) * 1000, 2),
+                    "db_operations": logout_operations,
+                },
+            )
             
             # 🚨 【自動リセット対策】放置時も古い記憶（ステップ位置など）を完全に破壊して初期化
             for key in list(st.session_state.keys()):
@@ -185,17 +247,59 @@ else:
     with col_logout:
         st.write("") 
         if st.button(settings.LABELS["logout"], use_container_width=True, key="main_logout_btn"):
-            try:
-                if current_user_id:
-                    # 1. 採点者のログインステータスをオフにする
-                    supabase.table("graders").update({"login_status": False}).eq("grader_id", current_user_id).execute()
-                    
-                    # 💡 自分が掴んでいた問題のロックを一括解放
-                    supabase.table("tbl_scoring_question_management") \
-                        .update({"is_locked": False, "locked_by_webid": None, "locked_at": None}) \
-                        .eq("locked_by_webid", current_user_id).execute()
-            except Exception:
-                pass
+            logout_started_at = time.perf_counter()
+            audit_logger.info(
+                "audit.logout reason=user_requested grader_id=%r correlation_id=%s",
+                current_user_id,
+                correlation_id,
+            )
+            logout_db_operations = []
+            if current_user_id:
+                logout_operations = (
+                    (
+                        "grader_login_status_reset",
+                        lambda: supabase.table("graders")
+                        .update({"login_status": False})
+                        .eq("grader_id", current_user_id)
+                        .execute(),
+                    ),
+                    (
+                        "grader_scoring_locks_release",
+                        lambda: supabase.table("tbl_scoring_question_management")
+                        .update({"is_locked": False, "locked_by_webid": None, "locked_at": None})
+                        .eq("locked_by_webid", current_user_id)
+                        .execute(),
+                    ),
+                )
+                for operation_name, execute in logout_operations:
+                    try:
+                        execute_logged_db_operation(
+                            operator_id=current_user_id,
+                            action_type="LOGOUT",
+                            operation_name=operation_name,
+                            execute=execute,
+                            correlation_id=correlation_id,
+                            operation_events=logout_db_operations,
+                        )
+                    except Exception:
+                        pass
+
+            insert_operation_log(
+                supabase=supabase,
+                operator_id=current_user_id or "UNKNOWN_USER",
+                action_type="LOGOUT",
+                description="採点者によるログオフ",
+                correlation_id=correlation_id,
+                metadata={
+                    "result": (
+                        "failure"
+                        if any(operation["result"] == "failure" for operation in logout_db_operations)
+                        else "success"
+                    ),
+                    "duration_ms": round((time.perf_counter() - logout_started_at) * 1000, 2),
+                    "db_operations": logout_db_operations,
+                },
+            )
 
             # 🚨 【今回の最重要対策】Streamlitのセッションに記憶されている全変数を完全に消去！
             for key in list(st.session_state.keys()):
@@ -284,6 +388,33 @@ else:
             key="active_tab_key",
             label_visibility="collapsed",
         )
+        previous_tab = st.session_state.get("_previous_logged_tab_key")
+        if previous_tab is not None and previous_tab != selected_tab:
+            tab_labels = dict(zip(visible_tab_keys, visible_tab_labels))
+            transition_description = (
+                f"画面遷移: {tab_labels.get(previous_tab, previous_tab)}"
+                f" -> {tab_labels.get(selected_tab, selected_tab)}"
+            )
+            audit_logger.info(
+                "audit.page_transition grader_id=%r from=%r to=%r correlation_id=%s",
+                current_user_id,
+                tab_labels.get(previous_tab, previous_tab),
+                tab_labels.get(selected_tab, selected_tab),
+                correlation_id,
+            )
+            insert_operation_log(
+                supabase=supabase,
+                operator_id=current_user_id or "UNKNOWN_USER",
+                action_type="PAGE_TRANSITION",
+                description=transition_description,
+                correlation_id=correlation_id,
+                metadata={
+                    "result": "success",
+                    "from": tab_labels.get(previous_tab, previous_tab),
+                    "to": tab_labels.get(selected_tab, selected_tab),
+                },
+            )
+        st.session_state["_previous_logged_tab_key"] = selected_tab
         tab_map = {selected_tab: st.container()}
         
         if selected_tab == "tab1":
