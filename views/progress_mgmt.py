@@ -12,6 +12,7 @@ try:
         get_grader_master,
         get_scoring_group_master,
     )
+    from supabase_utils import fetch_all_pages
 except ImportError:
     from views.master_cache import (
         clear_master_cache,
@@ -19,6 +20,7 @@ except ImportError:
         get_grader_master,
         get_scoring_group_master,
     )
+    from views.supabase_utils import fetch_all_pages
 
 # ==========================================================
 # 💡 負荷対策：問題マスタの取得を2分間キャッシュ化する
@@ -82,13 +84,19 @@ def show_progress_management(supabase, settings, display_confirm_panel):
                 dropdown_labels.append(f"{m_group_name}：{m_name}（{m_id}）")
 
             # 管理データの一括取得
-            response = supabase.table("tbl_scoring_question_management") \
-                .select("checker_webid, response_id, judge_mark_result, grading_comp_date") \
-                .in_("checker_webid", member_ids) \
-                .execute()
+            scoring_records = []
+            for i in range(0, len(member_ids), 1000):
+                member_id_chunk = member_ids[i:i + 1000]
+                scoring_records.extend(fetch_all_pages(
+                    lambda start, end: supabase.table("tbl_scoring_question_management")
+                    .select("checker_webid, response_id, judge_mark_result, grading_comp_date")
+                    .in_("checker_webid", member_id_chunk)
+                    .order("saiten_question_id")
+                    .range(start, end)
+                ))
 
-            if response.data:
-                df_data = pd.DataFrame(response.data)
+            if scoring_records:
+                df_data = pd.DataFrame(scoring_records)
                 
                 # 💡 安全な集計フラグの算出（既存ロジックを崩さず保留数を新設）
                 df_data["is_un作業"] = df_data["judge_mark_result"].isna() | (df_data["judge_mark_result"].astype(str).str.strip() == "")

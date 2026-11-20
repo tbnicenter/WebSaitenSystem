@@ -1,14 +1,17 @@
 import streamlit as st
 import pandas as pd
 import time
-from settings import IMAGE_URL_EXPIRATION_SECONDS
+# from settings import IMAGE_URL_EXPIRATION_SECONDS
 
 try:
     from master_cache import clear_master_cache, get_grader_master, get_question_master
+    from supabase_utils import fetch_all_pages
 except ImportError:
     from views.master_cache import clear_master_cache, get_grader_master, get_question_master
+    from views.supabase_utils import fetch_all_pages
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
+
 
 # 📝 【バグ修正】自分と同じviewsフォルダ内から安全にインポートする記述に修正
 try:
@@ -64,14 +67,17 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
 
         try:
             with st.spinner(settings.LABELS["hold_loading"]):
-                response = supabase.table("tbl_scoring_question_management") \
-                    .select("saiten_question_id, checker_webid, response_id, judge_mark_result, final_approver_id, grading_comp_date") \
-                    .execute()
+                all_records = fetch_all_pages(
+                    lambda start, end: supabase.table("tbl_scoring_question_management")
+                    .select("saiten_question_id, checker_webid, response_id, judge_mark_result, final_approver_id, grading_comp_date")
+                    .order("saiten_question_id")
+                    .range(start, end)
+                )
                 
                 master_data = get_question_master(supabase)
                 question_title_map = {row["response_id"]: row.get("question_title", "") for row in master_data if row.get("response_id")}
-            if response.data:
-                df_raw = pd.DataFrame(response.data)
+            if all_records:
+                df_raw = pd.DataFrame(all_records)
                 
                 # 日付の表記揺れ・型ズレを「YYYY-MM-DD」に完全統一
                 if "grading_comp_date" in df_raw.columns:
@@ -133,11 +139,11 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                 with f_col1:
                     show_hold_active = st.checkbox(settings.LABELS["hold_filter_active"], value=True, key="filter_hold_active")
                 with f_col2:
-                    show_hold_my_done = st.checkbox(settings.LABELS["hold_filter_mine"], value=False, key="filter_hold_my_done")
+                    show_hold_my_done = st.checkbox(settings.LABELS["hold_filter_mine"], value=True, key="filter_hold_my_done")
                 with f_col3:
                     show_hold_others_done = st.checkbox(settings.LABELS["hold_filter_others"], value=False, key="filter_hold_others_done")
                 with f_col4:
-                    show_hold_past_only = st.checkbox(settings.LABELS["hold_filter_past"], value=True, key="filter_hold_past_only")
+                    show_hold_past_only = st.checkbox(settings.LABELS["hold_filter_past"], value=False, key="filter_hold_past_only")
                 # ─── 📊 チェックボックスの状態を掛け合わせてマスクを作成 ───
                 keep_mask = pd.Series(False, index=df_summary.index)
                 
@@ -304,9 +310,13 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                     try: formatted_comp_date = pd.to_datetime(raw_session_date).strftime('%Y-%m-%d')
                     except Exception: formatted_comp_date = str(raw_session_date).strip()
 
-                query = supabase.table("tbl_scoring_question_management").select("*").eq("checker_webid", selected_grader).eq("response_id", selected_response)
-                if formatted_comp_date: query = query.eq("grading_comp_date", formatted_comp_date)
-                detail_response = query.order("saiten_question_id", desc=False).execute()
+                def build_detail_query(start, end):
+                    query = supabase.table("tbl_scoring_question_management").select("*").eq("checker_webid", selected_grader).eq("response_id", selected_response)
+                    if formatted_comp_date:
+                        query = query.eq("grading_comp_date", formatted_comp_date)
+                    return query.order("saiten_question_id", desc=False).range(start, end)
+
+                detail_records = fetch_all_pages(build_detail_query)
 
             try:
                 admin_ids = {str(u.get("grader_id")).strip() for u in get_grader_master(supabase) if u.get("role_id") == 4 and u.get("grader_id") is not None}
@@ -321,8 +331,8 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
             all_rows = []
             first_hold_index = None
             
-            if detail_response.data:
-                for r in detail_response.data:
+            if detail_records:
+                for r in detail_records:
                     j_val = str(r.get("judge_mark_result", "")).strip().upper()
                     a_val = str(r.get("final_approver_id", "")).strip()
                     is_graded = j_val in ["O", "X", "*"]
@@ -423,26 +433,29 @@ def show_hold_management_page(supabase, settings, display_confirm_panel, current
                         if file_name and str(file_name).strip() != "":
                             clean_file_name = str(file_name).strip()
 
-                            if "access_token" in st.session_state and "refresh_token" in st.session_state:
-                                supabase.auth.set_session(
-                                    st.session_state["access_token"],
-                                    st.session_state["refresh_token"],
-                                )
-
-                            signed_url_response = supabase.storage.from_("correct-image").create_signed_url(
-                                clean_file_name,
-                                IMAGE_URL_EXPIRATION_SECONDS,
+                            full_img_url = supabase.storage.from_("correct-image").get_public_url(
+                                clean_file_name
                             )
-                            if isinstance(signed_url_response, dict):
-                                full_img_url = (
-                                    signed_url_response.get("signedURL")
-                                    or signed_url_response.get("signedUrl")
-                                )
-                            else:
-                                full_img_url = signed_url_response
 
-                            if not full_img_url:
-                                raise ValueError("正答画像の署名付きURLが取得できませんでした。")
+                            # 署名付きURLに戻す場合は、settings の有効期限設定と合わせて以下を復帰する。
+                            # if "access_token" in st.session_state and "refresh_token" in st.session_state:
+                            #     supabase.auth.set_session(
+                            #         st.session_state["access_token"],
+                            #         st.session_state["refresh_token"],
+                            #     )
+                            # signed_url_response = supabase.storage.from_("correct-image").create_signed_url(
+                            #     clean_file_name,
+                            #     IMAGE_URL_EXPIRATION_SECONDS,
+                            # )
+                            # if isinstance(signed_url_response, dict):
+                            #     full_img_url = (
+                            #         signed_url_response.get("signedURL")
+                            #         or signed_url_response.get("signedUrl")
+                            #     )
+                            # else:
+                            #     full_img_url = signed_url_response
+                            # if not full_img_url:
+                            #     raise ValueError("正答画像の署名付きURLが取得できませんでした。")
 
                             st.markdown(settings.LABELS["correct_standard"])
                             st.markdown("<style>div.img-clickable-box img { max-height: 280px; object-fit: contain; width: 100%; border-radius: 4px; border: 1px solid #ddd; transition: opacity 0.2s; } div.img-clickable-box img:hover { opacity: 0.8; cursor: pointer; }</style>", unsafe_allow_html=True)

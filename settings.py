@@ -251,10 +251,10 @@ LABELS = {
     "hold_refresh": "🔄 保留データを更新",
     "hold_loading": "データベースから保留データを抽出中...",
     "hold_filter_title": "##### 🔍 保留データ表示フィルター",
-    "hold_filter_active": "🔴 未対応の保留あり",
-    "hold_filter_mine": "🔵 自分が対応済のみ",
-    "hold_filter_others": "🟢 自分以外が対応済のみ",
-    "hold_filter_past": "🗃️ 過去の採点完了日分も表示",
+    "hold_filter_active": "🔴 未対応の保留を表示",
+    "hold_filter_mine": "🔵 自分が対応したデータを表示",
+    "hold_filter_others": "🟢 自分以外が対応したデータを表示",
+    "hold_filter_past": "🗃️ 過去の採点完了日分を表示",
     "hold_no_match": "✨ 条件に一致する保留データ、または対応履歴はありません。",
     "hold_count": "保留数",
     "hold_no_data": "✨ 現在、データベース内に保留データはありません！すべての判定が完了しています。",
@@ -347,7 +347,10 @@ TAB_ROLE_CONFIG = {
 }
 
 #ログアウトするまでの時間（秒） （例：1800秒 ＝ 30分）
-LOGIN_TIMEOUT_SECONDS = 300     #とりあえず15分か？ 　テストの時は300秒    
+LOGIN_TIMEOUT_SECONDS = 900     #とりあえず15分か？ 　テストの時は300秒    
 
 #採点基準画像URL有効時間（採点画面・保留対応画面共通）
 IMAGE_URL_EXPIRATION_SECONDS = 30  # 5分（300秒）に設定。必要に応じて変更可能。
+
+# AI採点結果CSVの取込時に採点者・最終判定者として登録するID
+AI_GRADER_ID = "ADM_AIGrader"
