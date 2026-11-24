@@ -4,7 +4,7 @@ def fetch_all_pages(query_factory, page_size=1000):
     while True:
         response = query_factory(page_start, page_start + page_size - 1).execute()
         page_data = response.data or []
-        rows.extend(page_data)
-        if len(page_data) < page_size:
+        if not page_data:
             return rows
-        page_start += page_size
+        rows.extend(page_data)
+        page_start += len(page_data)
