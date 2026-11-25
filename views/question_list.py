@@ -3,13 +3,15 @@ from datetime import date, datetime, timedelta, timezone
 import pandas as pd
 import streamlit as st
 from zoneinfo import ZoneInfo
-from settings import IMAGE_URL_EXPIRATION_SECONDS
+# from settings import IMAGE_URL_EXPIRATION_SECONDS
 
 
 try:
     from master_cache import clear_master_cache, get_question_master
+    from supabase_utils import fetch_all_pages
 except ImportError:
     from views.master_cache import clear_master_cache, get_question_master
+    from views.supabase_utils import fetch_all_pages
 
 try:
     from log_common import classify_error, get_correlation_id, insert_operation_log
@@ -49,18 +51,21 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
         try:
             with st.spinner(settings.LABELS["loading_data"]):
                 # 💡 自分宛てデータをロード
-                response = supabase.table("tbl_scoring_question_management") \
-                    .select("checker_webid, response_id, judge_mark_result, grading_comp_date, ai_judge_mark, is_locked, locked_by_webid, locked_at") \
-                    .eq("checker_webid", current_user_id) \
-                    .not_.is_("ai_judge_mark", "null") \
-                    .execute()
+                scoring_records = fetch_all_pages(
+                    lambda start, end: supabase.table("tbl_scoring_question_management")
+                    .select("checker_webid, response_id, judge_mark_result, grading_comp_date, ai_judge_mark, is_locked, locked_by_webid, locked_at")
+                    .eq("checker_webid", current_user_id)
+                    .not_.is_("ai_judge_mark", "null")
+                    .order("saiten_question_id")
+                    .range(start, end)
+                )
                 
                 # キャッシュ化された問題マスタから一括取得
                 master_data = fetch_cached_question_master(supabase)
                 question_title_map = {row["response_id"]: row.get("question_title", "") for row in master_data if row.get("response_id")}
             
-            if response.data:
-                df_data = pd.DataFrame(response.data)
+            if scoring_records:
+                df_data = pd.DataFrame(scoring_records)
                 
                 # 日付の表記揺れ・型ズレを「YYYY-MM-DD」に一撃統一
                 if "grading_comp_date" in df_data.columns:
@@ -89,7 +94,7 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                 filter_col1, filter_col2 = st.columns([1.0, 1.0])
                 
                 with filter_col1:
-                    filter_active = st.checkbox(settings.LABELS["question_filter_active"], value=False, key="main_list_filter_active")
+                    filter_active = st.checkbox(settings.LABELS["question_filter_active"], value=True, key="main_list_filter_active")
                 with filter_col2:
                     # 💡 採点完了日超過のトグル（デフォルトOFF = 超過は非表示）
                     show_expired = st.checkbox(settings.LABELS["question_filter_expired"], value=False, key="main_list_filter_expired")
@@ -236,15 +241,15 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
 
             # 大元の最新データをSupabaseから安全にロード
             with st.spinner(settings.LABELS["loading_question_records"]):
-                detail_response = supabase.table("tbl_scoring_question_management") \
-                    .select("*") \
-                    .eq("checker_webid", selected_grader) \
-                    .eq("response_id", selected_response) \
-                    .eq("grading_comp_date", selected_comp_date) \
-                    .order("saiten_question_id", desc=False) \
-                    .execute()
-
-            detail_rows = detail_response.data or []
+                detail_rows = fetch_all_pages(
+                    lambda start, end: supabase.table("tbl_scoring_question_management")
+                    .select("*")
+                    .eq("checker_webid", selected_grader)
+                    .eq("response_id", selected_response)
+                    .eq("grading_comp_date", selected_comp_date)
+                    .order("saiten_question_id", desc=False)
+                    .range(start, end)
+                )
             
             if not detail_rows:
                 st.warning(settings.LABELS["question_records_not_found"])
@@ -324,26 +329,29 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                         if file_name and str(file_name).strip() != "":
                             clean_file_name = str(file_name).strip()
 
-                            if "access_token" in st.session_state and "refresh_token" in st.session_state:
-                                supabase.auth.set_session(
-                                    st.session_state["access_token"],
-                                    st.session_state["refresh_token"],
-                                )
-
-                            signed_url_response = supabase.storage.from_("correct-image").create_signed_url(
-                                clean_file_name,
-                                IMAGE_URL_EXPIRATION_SECONDS,
+                            full_img_url = supabase.storage.from_("correct-image").get_public_url(
+                                clean_file_name
                             )
-                            if isinstance(signed_url_response, dict):
-                                full_img_url = (
-                                    signed_url_response.get("signedURL")
-                                    or signed_url_response.get("signedUrl")
-                                )
-                            else:
-                                full_img_url = signed_url_response
 
-                            if not full_img_url:
-                                raise ValueError("正答画像の署名付きURLが取得できませんでした。")
+                            # 署名付きURLに戻す場合は、settings の有効期限設定と合わせて以下を復帰する。
+                            # if "access_token" in st.session_state and "refresh_token" in st.session_state:
+                            #     supabase.auth.set_session(
+                            #         st.session_state["access_token"],
+                            #         st.session_state["refresh_token"],
+                            #     )
+                            # signed_url_response = supabase.storage.from_("correct-image").create_signed_url(
+                            #     clean_file_name,
+                            #     IMAGE_URL_EXPIRATION_SECONDS,
+                            # )
+                            # if isinstance(signed_url_response, dict):
+                            #     full_img_url = (
+                            #         signed_url_response.get("signedURL")
+                            #         or signed_url_response.get("signedUrl")
+                            #     )
+                            # else:
+                            #     full_img_url = signed_url_response
+                            # if not full_img_url:
+                            #     raise ValueError("正答画像の署名付きURLが取得できませんでした。")
 
                             st.markdown("**正答画像**")
                             st.markdown("<style>div.img-clickable-box img { max-height: 280px; object-fit: contain; width: 100%; border-radius: 4px; border: 1px solid #ddd; transition: opacity 0.2s; } div.img-clickable-box img:hover { opacity: 0.8; cursor: pointer; }</style>", unsafe_allow_html=True)
@@ -397,7 +405,11 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                     with st.container(border=True):
                         st.markdown(settings.LABELS["answer_label"])
                         clean_answer = str(text_answer).replace("\n", "  \n")
-                        st.markdown(clean_answer)
+                        st.markdown(
+                            f"<span style='font-family: {settings.STUDENT_ANSWER_FONT_FAMILY}; "
+                            f"font-size: {settings.STUDENT_ANSWER_FONT_SIZE};'>{clean_answer}</span>",
+                            unsafe_allow_html=True,
+                        )
 
                     st.write("")
 

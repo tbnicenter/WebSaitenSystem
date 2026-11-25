@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timezone
 import time
 from views.log_common import insert_operation_log
+from views.supabase_utils import fetch_all_pages
 import csv 
 
 # この下に関数 def show_csv_import や def show_data_io_management が続く...
@@ -241,13 +242,24 @@ def show_data_io_management(supabase, settings):
         if st.button(settings.LABELS["fetch_unprocessed"], key="tab5_fetch_btn", use_container_width=True):
             with st.spinner(settings.LABELS["loading_unprocessed"]):
                 try:
-                    response = supabase.table("tbl_scoring_question_management") \
-                        .select("saiten_question_id, response_id, answer, answer_strnum, ai_judge_mark") \
-                        .is_("ai_judge_mark", "null") \
-                        .execute()
+                    page_size = 1000
+                    all_data = []
+                    page_start = 0
+                    while True:
+                        response = supabase.table("tbl_scoring_question_management") \
+                            .select("saiten_question_id, response_id, answer, answer_strnum, ai_judge_mark") \
+                            .is_("ai_judge_mark", "null") \
+                            .order("saiten_question_id") \
+                            .range(page_start, page_start + page_size - 1) \
+                            .execute()
+                        page_data = response.data or []
+                        all_data.extend(page_data)
+                        if len(page_data) < page_size:
+                            break
+                        page_start += page_size
 
-                    if response.data and len(response.data) > 0:
-                        df_export = pd.DataFrame(response.data)
+                    if all_data:
+                        df_export = pd.DataFrame(all_data)
                         
                         target_columns = ["saiten_question_id", "response_id", "answer", "answer_strnum"]
                         df_export = df_export[target_columns]
@@ -374,6 +386,8 @@ def show_data_io_management(supabase, settings):
                                 }
                             )
                             df_result.columns = df_result.columns.str.strip()
+                            judge_mark_result_col = df_result.columns[7] if len(df_result.columns) > 7 else None
+                            ai_verify_reason_col = df_result.columns[8] if len(df_result.columns) > 8 else None
 
                             # 文字列の両端の空白をトリム（内側の改行は維持）
                             df_result = df_result.apply(
@@ -461,6 +475,40 @@ def show_data_io_management(supabase, settings):
                                                     st.code(str(upsert_err))
                                                     error_occurred = True
                                                     break  # エラー時は安全のために処理を中断
+
+                                            if not error_occurred and judge_mark_result_col is not None:
+                                                for _, row in df_result.iterrows():
+                                                    raw_judge_mark = row.get(judge_mark_result_col)
+                                                    if pd.isna(raw_judge_mark) or str(raw_judge_mark).strip() in {"", "None", "none"}:
+                                                        continue
+
+                                                    update_data = {
+                                                        "judge_mark_result": str(raw_judge_mark).strip(),
+                                                        "checker_webid": settings.AI_GRADER_ID,
+                                                        "final_approver_id": settings.AI_GRADER_ID,
+                                                        "ai_verify_reason": (
+                                                            str(row.get(ai_verify_reason_col)).strip()
+                                                            if ai_verify_reason_col is not None
+                                                            and pd.notna(row.get(ai_verify_reason_col))
+                                                            else ""
+                                                        ),
+                                                        "updated_at": current_utc_time,
+                                                    }
+                                                    try:
+                                                        supabase.table("tbl_scoring_question_management") \
+                                                            .update(update_data) \
+                                                            .eq("saiten_question_id", row["saiten_question_id"]) \
+                                                            .execute()
+                                                    except Exception as update_err:
+                                                        st.error(
+                                                            settings.LABELS["result_update_error"].format(
+                                                                index=row["saiten_question_id"],
+                                                                error=str(update_err),
+                                                            )
+                                                        )
+                                                        st.code(str(update_err))
+                                                        error_occurred = True
+                                                        break
                                             
                                             if not error_occurred:
                                                 # 📝 【操作ログ】AI結果インポート成功の履歴を監査ログへ刻印
@@ -501,23 +549,29 @@ def show_graded_output(supabase, settings):
     with st.spinner(settings.LABELS["graded_export_loading"]):
         try:
             # 仕様書通り「contents_id」を確実に含めてロード
-            all_res = supabase.table("tbl_scoring_question_management") \
+            all_data = fetch_all_pages(
+                lambda start, end: supabase.table("tbl_scoring_question_management")
                 .select(
                     "saiten_question_id, response_id, contents_id, judge_mark_result, final_approver_id, "
-                    "ai_cp1, ai_cp2, ai_cp3, ai_reason, ai_judge_mark, grading_comp_date"
+                    "ai_cp1, ai_cp2, ai_cp3, ai_reason, ai_judge_mark, ai_verify_reason, grading_comp_date"
                 ) \
-                .execute()
-            all_data = all_res.data or []
+                .order("saiten_question_id")
+                .range(start, end)
+            )
             
             # 操作ログから「過去に出力確定された日付」を逆引き
             exported_dates_set = set()
             try:
-                log_res = supabase.table("tbl_operation_logs") \
-                    .select("target_id") \
-                    .eq("action_type", "EXPORT_GRADED_DATA") \
-                    .execute()
-                if log_res.data:
-                    for log_row in log_res.data:
+                export_logs = fetch_all_pages(
+                    lambda start, end: supabase.table("tbl_operation_logs")
+                    .select("target_id")
+                    .eq("action_type", "EXPORT_GRADED_DATA")
+                    .order("created_at")
+                    .order("target_id")
+                    .range(start, end)
+                )
+                if export_logs:
+                    for log_row in export_logs:
                         t_id = log_row.get("target_id")
                         if t_id:
                             for d_part in str(t_id).split(","):
@@ -644,10 +698,11 @@ def show_graded_output(supabase, settings):
         st.success(settings.LABELS["graded_ready"].format(count=len(df_valid_sorted), dates=valid_dates))
 
         csv_lines = []
-        # 📋【新仕様】ご提示いただいた全11項目の日本語ヘッダーを完全再現
+        # 📋【新仕様】採点完了データの全12項目を出力
         headers = [
             "採点問題ID", "レスポンス識別子", "コンテンツID", "採点結果", "採点確定者：WEBID",
-            "採点メモ", "AI採点CheckPoint1", "AI採点CheckPoint2", "AI採点CheckPoint3", "AI採点判定理由", "AI採点判定結果"
+            "採点メモ", "AI採点CheckPoint1", "AI採点CheckPoint2", "AI採点CheckPoint3", "AI採点判定理由",
+            "AI採点判定結果", "ai_verify_reason"
         ]
         csv_lines.append(",".join(headers))
 
@@ -685,9 +740,11 @@ def show_graded_output(supabase, settings):
             
             # 11. AI採点判定結果 (text)
             ai_judge = str(row.get("ai_judge_mark", "")) if pd.notna(row.get("ai_judge_mark")) else ""
+            # 12. AI確認理由
+            verify_reason_clean = clean_quote(row.get("ai_verify_reason", ""))
 
             # 1本の物理カンマ区切り1行へ美しく組み立て
-            line = f"{s_id},{r_id},{c_id},{j_res},{app_id},{memo_clean},{cp1_clean},{cp2_clean},{cp3_clean},{reason_clean},{ai_judge}"
+            line = f"{s_id},{r_id},{c_id},{j_res},{app_id},{memo_clean},{cp1_clean},{cp2_clean},{cp3_clean},{reason_clean},{ai_judge},{verify_reason_clean}"
             csv_lines.append(line)
 
         # Windows標準の「\r\n」で完全結合してバックスラッシュの混入を絶対防止
@@ -726,22 +783,13 @@ def show_graded_output(supabase, settings):
                     login_user = st.session_state.get("user_id", "ADMIN_USER")
                     valid_pkey_list = df_valid_sorted["saiten_question_id"].tolist()
 
-                    try:
-                        from views.log_common import insert_operation_log
-                    except ImportError:
-                        try:
-                            from log_common import insert_operation_log
-                        except ImportError:
-                            insert_operation_log = None
-
-                    if insert_operation_log:
-                        insert_operation_log(
-                            supabase=supabase,
-                            operator_id=login_user,
-                            action_type="EXPORT_GRADED_DATA",
-                            target_id=",".join(map(str, valid_dates)),
-                            description=f"管理者が採点完了データの一括CSV出力（確定）を実行。対象日付: {valid_dates}、合計出力件数: {len(valid_pkey_list)}件。"
-                        )
+                    insert_operation_log(
+                        supabase=supabase,
+                        operator_id=login_user,
+                        action_type="EXPORT_GRADED_DATA",
+                        target_id=",".join(map(str, valid_dates)),
+                        description=f"管理者が採点完了データの一括CSV出力（確定）を実行。対象日付: {valid_dates}、合計出力件数: {len(valid_pkey_list)}件。"
+                    )
                     
                     st.session_state["tab6_selected_valid_df"] = None
                     st.session_state["tab6_target_dates"] = []
@@ -761,7 +809,7 @@ def show_graded_output(supabase, settings):
             v_str = str(val).strip()
             return v_str[:-2] if v_str.endswith(".0") else v_str
 
-        # 📊 画面プレビューのグリッドも全11項目と完全同期
+        # 📊 画面プレビューのグリッドも全12項目と完全同期
         df_preview_show = pd.DataFrame({
             "採点問題ID": df_preview["saiten_question_id"],
             "レスポンス識別子": df_preview["response_id"],
@@ -773,6 +821,7 @@ def show_graded_output(supabase, settings):
             "AI採点CheckPoint2": df_preview.get("ai_cp2", "").fillna(""),
             "AI採点CheckPoint3": df_preview.get("ai_cp3", "").fillna(""),
             "AI採点判定理由": df_preview.get("ai_reason", "").fillna(""),
-            "AI採点判定結果": df_preview.get("ai_judge_mark", "").fillna("")
+            "AI採点判定結果": df_preview.get("ai_judge_mark", "").fillna(""),
+            "ai_verify_reason": df_preview.get("ai_verify_reason", "").fillna("")
         })
         st.dataframe(df_preview_show.head(50), use_container_width=True, hide_index=True)

@@ -5,6 +5,10 @@ from streamlit.errors import StreamlitSecretNotFoundError
 # settings.py などの環境設定ファイル
 IS_TEST_MODE = True  # 🧪 ローカルテスト時は True。本番リリース時はここを False にするだけでボタンが消滅します。
 
+# 児童生徒の解答表示
+STUDENT_ANSWER_FONT_FAMILY = "Meiryo, sans-serif"
+STUDENT_ANSWER_FONT_SIZE = "20px"  
+
 # supabaseのストレージURL
 # 💡 外部の設定からのみ、絶対にURLを取得する形に固定
 _url = os.environ.get("SUPABASE_STORAGE_URL", "").strip()
@@ -42,17 +46,17 @@ LABELS = {
     "login_button": "ログイン",
 
     # タブラベル
-    "tab1_label": "採点画面",
+    "tab1_label": "問題一覧画面",
     "tab2_group_label": "採点状況管理画面",
     "tab3_label": "CSVデータ取込画面",
     "tab4_label": "ファイルのアップロード & ダウンロード",
 
     # Tab1
-    "tab1_header": "採点画面",
+    "tab1_header": "問題一覧画面",
     "tab2_group_header": "採点管理画面",
     "refresh_button": "最新の情報に更新",
     "col_grader": "採点者ID",
-    "col_response": "問題ID",
+    "col_response": "問題",
     "col_count": "総採点数",
     "col_ungraded": "未採点数",
     "col_graded": "採点済数",
@@ -251,10 +255,10 @@ LABELS = {
     "hold_refresh": "🔄 保留データを更新",
     "hold_loading": "データベースから保留データを抽出中...",
     "hold_filter_title": "##### 🔍 保留データ表示フィルター",
-    "hold_filter_active": "🔴 未対応の保留あり",
-    "hold_filter_mine": "🔵 自分が対応済のみ",
-    "hold_filter_others": "🟢 自分以外が対応済のみ",
-    "hold_filter_past": "🗃️ 過去の採点完了日分も表示",
+    "hold_filter_active": "🔴 未対応の保留を表示",
+    "hold_filter_mine": "🔵 自分が対応したデータを表示",
+    "hold_filter_others": "🟢 自分以外が対応したデータを表示",
+    "hold_filter_past": "🗃️ 過去の採点完了日分を表示",
     "hold_no_match": "✨ 条件に一致する保留データ、または対応履歴はありません。",
     "hold_count": "保留数",
     "hold_no_data": "✨ 現在、データベース内に保留データはありません！すべての判定が完了しています。",
@@ -347,7 +351,10 @@ TAB_ROLE_CONFIG = {
 }
 
 #ログアウトするまでの時間（秒） （例：1800秒 ＝ 30分）
-LOGIN_TIMEOUT_SECONDS = 300     #とりあえず15分か？ 　テストの時は300秒    
+LOGIN_TIMEOUT_SECONDS = 1800     #本番用の30分にした    
 
 #採点基準画像URL有効時間（採点画面・保留対応画面共通）
-IMAGE_URL_EXPIRATION_SECONDS = 30  # 5分（300秒）に設定。必要に応じて変更可能。
+IMAGE_URL_EXPIRATION_SECONDS = 1800  # 30分（1800）に設定。必要に応じて変更可能。
+
+# AI採点結果CSVの取込時に採点者・最終判定者として登録するID
+AI_GRADER_ID = "ADM_AIGrader"
