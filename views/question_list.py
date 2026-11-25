@@ -94,7 +94,7 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                 filter_col1, filter_col2 = st.columns([1.0, 1.0])
                 
                 with filter_col1:
-                    filter_active = st.checkbox(settings.LABELS["question_filter_active"], value=False, key="main_list_filter_active")
+                    filter_active = st.checkbox(settings.LABELS["question_filter_active"], value=True, key="main_list_filter_active")
                 with filter_col2:
                     # 💡 採点完了日超過のトグル（デフォルトOFF = 超過は非表示）
                     show_expired = st.checkbox(settings.LABELS["question_filter_expired"], value=False, key="main_list_filter_expired")
@@ -405,7 +405,11 @@ def show_question_list(supabase, settings, current_user_id, current_role_id):
                     with st.container(border=True):
                         st.markdown(settings.LABELS["answer_label"])
                         clean_answer = str(text_answer).replace("\n", "  \n")
-                        st.markdown(clean_answer)
+                        st.markdown(
+                            f"<span style='font-family: {settings.STUDENT_ANSWER_FONT_FAMILY}; "
+                            f"font-size: {settings.STUDENT_ANSWER_FONT_SIZE};'>{clean_answer}</span>",
+                            unsafe_allow_html=True,
+                        )
 
                     st.write("")
 

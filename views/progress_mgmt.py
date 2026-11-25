@@ -57,6 +57,11 @@ def show_progress_management(supabase, settings, display_confirm_panel):
         with st.spinner(settings.LABELS["loading_data"]):
             # 採点者・グループは全画面共通の短時間キャッシュを利用します。
             all_graders = get_grader_master(supabase)
+            question_title_map = {
+                str(row["response_id"]).strip(): row.get("question_title")
+                for row in fetch_cached_question_master(supabase)
+                if row.get("response_id") is not None
+            }
             if user_role_id == 4:
                 group_members_data = all_graders
             else:
@@ -129,7 +134,7 @@ def show_progress_management(supabase, settings, display_confirm_panel):
                 with filter_col1:
                     show_active = st.checkbox(settings.LABELS["progress_filter_active"], value=True, key="filter_show_active")
                 with filter_col2:
-                    show_completed = st.checkbox(settings.LABELS["progress_filter_completed"], value=True, key="filter_show_completed")
+                    show_completed = st.checkbox(settings.LABELS["progress_filter_completed"], value=False, key="filter_show_completed")
                 with filter_col3:
                     # 💡 デフォルトOFF（False）でフィルターを追加
                     show_expired = st.checkbox(settings.LABELS["progress_filter_expired"], value=False, key="filter_show_expired")
@@ -230,24 +235,24 @@ def show_progress_management(supabase, settings, display_confirm_panel):
                 grader_name_label = settings.LABELS["col_grader_name"]
                 
                 # カラムの幅を細かく調整（11個の列オブジェクトのリストを作成）
-                h_cols = st.columns([0.6, 0.8, 1.2, 1.4, 1.2, 1.0, 1.0, 1.0, 1.0, 2.0, 4.0])
+                h_cols = st.columns([0.6, 0.8, 1.5, 1.0, 1.0, 3.0, 1.0, 1.0, 1.0, 1.0, 4.0])
                 h_cols[0].markdown("**選択**")
                 h_cols[1].markdown(f"**{settings.LABELS['row_number']}**")
-                h_cols[2].markdown(f"**{settings.LABELS['col_grader']}**")
-                h_cols[3].markdown(f"**{settings.LABELS['completion_date']}**")
-                h_cols[4].markdown(f"**{settings.LABELS['col_response']}**")
-                h_cols[5].markdown(f"**{settings.LABELS['total_count']}**")
-                h_cols[6].markdown(f"**{settings.LABELS['ungraded_count']}**")
-                h_cols[7].markdown(f"**{settings.LABELS['graded_count']}**")
-                h_cols[8].markdown(f"**{settings.LABELS['hold_count']}**")
-                h_cols[9].markdown(f"**{grader_name_label}**")
+                h_cols[2].markdown(f"**{grader_name_label}**")
+                h_cols[3].markdown(f"**{settings.LABELS['col_grader']}**")
+                h_cols[4].markdown(f"**{settings.LABELS['completion_date']}**")
+                h_cols[5].markdown(f"**{settings.LABELS['col_response']}**")
+                h_cols[6].markdown(f"**{settings.LABELS['total_count']}**")
+                h_cols[7].markdown(f"**{settings.LABELS['ungraded_count']}**")
+                h_cols[8].markdown(f"**{settings.LABELS['graded_count']}**")
+                h_cols[9].markdown(f"**{settings.LABELS['hold_count']}**")
                 h_cols[10].markdown("**採点者変更**")
 
                 # ─── 🔄 データ行ループと個別変更 ───
                 row_records = df_summary.to_dict('records')
                 for row_index, row in enumerate(row_records):
                     # ヘッダーと完全に一致する幅で配置
-                    cols = st.columns([0.6, 0.8, 1.2, 1.4, 1.2, 1.0, 1.0, 1.0, 1.0, 2.0, 4.0])
+                    cols = st.columns([0.6, 0.8, 1.5, 1.0, 1.0, 3.0, 1.0, 1.0, 1.0, 1.0, 4.0])
                     selected = cols[0].checkbox("", key=f"row_check_{row_index}", label_visibility="collapsed")
                     
                     ungraded_count = int(row.get('未採点問題数', 0))
@@ -286,15 +291,22 @@ def show_progress_management(supabase, settings, display_confirm_panel):
 
                     # 💡 各カラムのインデックス（0〜9番目）を明示して安全に流し込み
                     write_colored(cols[1], f"{row_index + 1}")                       # 行番号
-                    write_colored(cols[2], f"{row['採点者ID']}")                    # 採点者ID
+                    write_colored(cols[2], group_member_map.get(row['採点者ID'], "")) # 採点担当者名
+                    write_colored(cols[3], f"{row['採点者ID']}")                    # 採点者ID
                     display_date = "" if pd.isna(comp_date_val) else str(comp_date_val).strip()
-                    write_colored(cols[3], display_date)                             # 採点完了日
-                    write_colored(cols[4], f"{row['問題ID']}")                      # 問題ID
-                    write_colored(cols[5], f"{row['採点数']}")                      # 総採点数
-                    write_colored(cols[6], f"{ungraded_count}")                      # 未採点数
-                    write_colored(cols[7], f"{row['採点済問題数']}")                  # 採点済数
-                    write_colored(cols[8], f"{hold_count}")                          # 採点保留数（💡新設）
-                    write_colored(cols[9], group_member_map.get(row['採点者ID'], "")) # 採点担当者名
+                    write_colored(cols[4], display_date)                             # 採点完了日
+                    response_id = row["問題ID"]
+                    question_title = question_title_map.get(str(response_id).strip())
+                    display_title = (
+                        str(question_title).strip()
+                        if pd.notna(question_title) and str(question_title).strip()
+                        else str(response_id)
+                    )
+                    write_colored(cols[5], display_title)                           # 問題表示名
+                    write_colored(cols[6], f"{row['採点数']}")                      # 総採点数
+                    write_colored(cols[7], f"{ungraded_count}")                      # 未採点数
+                    write_colored(cols[8], f"{row['採点済問題数']}")                  # 採点済数
+                    write_colored(cols[9], f"{hold_count}")                          # 採点保留数（💡新設）
                     current_member_idx = member_ids.index(row['採点者ID']) if row['採点者ID'] in member_ids else 0
                     
                     # 🔓 --- 誤操作防止の安全ロックチェックボックス（10番目のカラムを指定） ---
